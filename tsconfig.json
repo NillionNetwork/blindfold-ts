@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "outDir": "build",
+    "module": "commonjs",
+    "target": "es6",
+    "sourceMap": false,
+    "declaration": true,
+    "lib": ["es6", "dom"]
+  },
+  "files": [
+    "src/nilql.ts"
+  ],
+  "include": [
+    "src/nilql.ts",
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "test/nilql.test.ts"
+  ]
+}

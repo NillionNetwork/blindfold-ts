@@ -1,0 +1,51 @@
+{
+  "name": "@nillion/nilql",
+  "version": "0.1.0",
+  "description": "Library for working with encrypted data within NilDB queries and replies.",
+  "main": "build/nilql.js",
+  "types": "build/nilql.d.ts",
+  "directories": {
+    "test": "test"
+  },
+  "files": [
+    "package.json",
+    "README.md",
+    "build/**",
+    "dist/**"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --coverage",
+    "lint": "eslint src"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nillionnetwork/nilql-ts.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nillionnetwork/nilql-ts/issues"
+  },
+  "homepage": "https://github.com/nillionnetwork/nilql-ts",
+  "devDependencies": {
+    "@types/node": "17.0.21",
+    "@types/jest": "^29.5.12",
+    "ts-node": "^10.9.2",
+    "ts-loader": "^9.5.1",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.11.0",
+    "@typescript-eslint/eslint-plugin": "^8.12.2",
+    "@typescript-eslint/parser": "^8.12.2",
+    "@eslint/json": "^0.6.0",
+    "@eslint/markdown": "^6.2.1",
+    "eslint-plugin-jest": "^28.8.3",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-tsdoc": "^0.3.0",
+    "eslint": "^9.14.0"
+  },
+  "dependencies": {
+    "@types/node": "^17.0.21",
+    "paillier-bigint": "^3.4.3"
+  }
+}
