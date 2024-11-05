@@ -69,6 +69,20 @@ describe('input ranges and errors', () => {
     expect(p).toThrow("cannot create public key for this secret key");
   });
 
+  test('errors encryption for match operation', async () => {
+    const cluster = {"decentralized": false};
+    const secretKey = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const plaintext = "x".repeat(4097);
+
+    try {
+      await nilql.encrypt(secretKey, plaintext);
+    } catch(e) {
+      expect(e).toStrictEqual(
+        TypeError("plaintext string must be possible to encode in 4096 bytes or fewer")
+      );
+    }
+  });
+
   test('errors encryption for sum operation', async () => {
     const cluster = {"decentralized": false};
     const secretKey = await nilql.secretKey(cluster, {"match": false, "sum": true});
@@ -81,7 +95,7 @@ describe('input ranges and errors', () => {
         expect(e).toStrictEqual(
           TypeError("plaintext must be 32-bit nonnegative integer value")
         );
-      }        
+      }
     }
   });
 
@@ -127,7 +141,7 @@ describe('functionalities', () => {
     expect(s.value != null).toEqual(true);
   });
 
-  test('encryption for match operation', async () => {
+  test('encryption of number for match operation', async () => {
     const cluster = {"decentralized": false};
     const secretKey = await nilql.secretKey(cluster, {"match": true, "sum": false});
 
@@ -138,6 +152,15 @@ describe('functionalities', () => {
     const plaintextBigInt = BigInt(123);
     const ciphertextFromBigInt = (await nilql.encrypt(secretKey, plaintextBigInt) as Uint8Array);
     expect(ciphertextFromBigInt.length == 64).toEqual(true);
+  });
+
+  test('encryption of string for match operation', async () => {
+    const cluster = {"decentralized": false};
+    const secretKey = await nilql.secretKey(cluster, {"match": true, "sum": false});
+
+    const plaintext = "ABC";
+    const ciphertext = (await nilql.encrypt(secretKey, plaintext) as Uint8Array);
+    expect(ciphertext.length == 64).toEqual(true);
   });
 
   test('encryption for sum operation', async () => {

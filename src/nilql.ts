@@ -6,7 +6,8 @@ import * as paillierBigint from 'paillier-bigint';
 /**
  * Maximum size of nonnegative numerical plaintext values.
  */
-const _PLAINTEXT_MAX = 4294967296;
+const _PLAINTEXT_UNSIGNED_INTEGER_MAX = 4294967296;
+const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
 
 /**
  * Cluster configuration information.
@@ -142,7 +143,7 @@ function publicKey(
  */
 async function encrypt(
   key: PublicKey | SecretKey,
-  plaintext: number | bigint
+  plaintext: number | bigint | string
 ): Promise<bigint | Uint8Array>
 {
   let instance = null;
@@ -152,7 +153,7 @@ async function encrypt(
     const secretKey = key as SecretKey;
     let bytes: Buffer = null;
 
-    // Encrypting (i.e., hashing) a `Number` or `BigInt` instance for matching.
+    // Encrypting (i.e., hashing) a `number` or `bigint` instance for matching.
     if (typeof plaintext === "number" || typeof plaintext === "bigint") {
       let bigInt = null;
       if (typeof plaintext === "number") {
@@ -162,6 +163,16 @@ async function encrypt(
       }
       bytes = Buffer.alloc(8);
       bytes.writeBigInt64LE(bigInt as bigint);
+    }
+
+    // Encrypting (i.e., hashing) a `string` instance for matching.
+    if (typeof plaintext === "string") {
+      const encoder = new TextEncoder();
+      bytes = Buffer.from(encoder.encode(plaintext));
+
+      if (bytes.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX) {
+        throw new TypeError("plaintext string must be possible to encode in 4096 bytes or fewer");
+      }
     }
 
     instance = await _sha512(_concat(secretKey.value.secretSalt, bytes));
@@ -174,7 +185,7 @@ async function encrypt(
     if (!(typeof plaintext === "number" || typeof plaintext === "bigint")) {
       throw new TypeError("plaintext must be number or bigint for sum operation");
     }
-    if (BigInt(plaintext) < 0 || BigInt(plaintext) >= _PLAINTEXT_MAX) {
+    if (BigInt(plaintext) < 0 || BigInt(plaintext) >= _PLAINTEXT_UNSIGNED_INTEGER_MAX) {
       throw new TypeError("plaintext must be 32-bit nonnegative integer value");
     }
 

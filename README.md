@@ -13,8 +13,21 @@ npm install
 
 The library can be imported in the usual ways:
 
-```JavaScript
+```TypeScript
 const { nilql } = require('@nillion/nilql');
+```
+
+An example demonstrating use of the library is presented below:
+
+```TypeScript
+const cluster = {"decentralized": false};
+const operations = {"match": false, "sum": true};
+const secretKey = await nilql.secretKey(cluster, operations);
+const publicKey = await nilql.publicKey(secretKey);
+const plaintext = BigInt(123);
+const ciphertext = (await nilql.encrypt(publicKey, plaintext) as bigint);
+const decrypted = (await nilql.decrypt(secretKey, ciphertext) as bigint);
+console.assert(plaintext == decrypted);
 ```
 
 Testing and Conventions
