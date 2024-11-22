@@ -4,9 +4,13 @@
 import * as paillierBigint from 'paillier-bigint';
 
 /**
- * Maximum size of nonnegative numerical plaintext values.
+ * Maximum range of plaintext integer values that can be encrypted.
  */
 const _PLAINTEXT_UNSIGNED_INTEGER_MAX = 4294967296;
+
+/**
+ * Maximum length of plaintext string values that can be encrypted.
+ */
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
 
 /**
