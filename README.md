@@ -20,14 +20,12 @@ const { nilql } = require('@nillion/nilql');
 An example demonstrating use of the library is presented below:
 
 ```TypeScript
-const cluster = {"decentralized": false};
-const operations = {"match": false, "sum": true};
-const secretKey = await nilql.secretKey(cluster, operations);
-const publicKey = await nilql.publicKey(secretKey);
+const cluster = {"nodes": [{}, {}]};
+const secretKey = await nilql.secretKey(cluster, {"sum": true});
 const plaintext = BigInt(123);
-const ciphertext = (await nilql.encrypt(publicKey, plaintext) as bigint);
-const decrypted = (await nilql.decrypt(secretKey, ciphertext) as bigint);
-console.assert(plaintext == decrypted);
+const ciphertext = await nilql.encrypt(secretKey, plaintext);
+const decrypted = await nilql.decrypt(secretKey, ciphertext);
+console.log(plaintext, decrypted); // Should output `123n 123n`.
 ```
 
 Testing and Conventions

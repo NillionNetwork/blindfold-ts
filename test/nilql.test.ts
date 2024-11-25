@@ -49,10 +49,24 @@ describe('input ranges and errors', () => {
   });
 
   test('errors secretKey', async () => {
-    const cluster = {"nodes": [{}]};
+    try {
+      const s = await nilql.secretKey(null, null);
+    } catch(e) {
+      expect(e).toStrictEqual(
+        TypeError("valid cluster configuration is required")
+      );
+    }
 
     try {
-      const s = await nilql.secretKey(cluster, null);
+      const s = await nilql.secretKey({"nodes": []}, null);
+    } catch(e) {
+      expect(e).toStrictEqual(
+        TypeError("cluster configuration must contain at least one node")
+      );
+    }
+
+    try {
+      const s = await nilql.secretKey({"nodes": [{}]}, null);
     } catch(e) {
       expect(e).toStrictEqual(
         TypeError("valid operations specification is required")
@@ -60,7 +74,7 @@ describe('input ranges and errors', () => {
     }
 
     try {
-      const s = await nilql.secretKey(cluster, {"match": true, "sum": true});
+      const s = await nilql.secretKey({"nodes": [{}]}, {"match": true, "sum": true});
     } catch(e) {
       expect(e).toStrictEqual(
         TypeError("secret key must enable exactly one operation")

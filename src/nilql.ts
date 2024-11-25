@@ -146,7 +146,7 @@ async function secretKey(
 ): Promise<SecretKey>
 {
   if (cluster === undefined || cluster === null) {
-    throw new TypeError("cluster configuration is required");
+    throw new TypeError("valid cluster configuration is required");
   };
 
   if (cluster.nodes === undefined || cluster.nodes.length < 1) {
@@ -209,7 +209,7 @@ function publicKey(
     operations: secretKey.operations
   };
 
-  if (secretKey.value != null && secretKey.value.publicKey != null) {
+  if (secretKey?.value?.publicKey != null) {
     instance.value = secretKey.value.publicKey;
   } else {
     throw new TypeError("cannot create public key for supplied secret key");
@@ -324,7 +324,7 @@ async function encrypt(
       let paillierPublicKey: paillierBigint.PublicKey;
 
       if ("publicKey" in key.value) { // Secret key was supplied.
-        paillierPublicKey = key.value["publicKey"] as paillierBigint.PublicKey;
+        paillierPublicKey = key.value.publicKey as paillierBigint.PublicKey;
       } else { // Public key was supplied.
         paillierPublicKey = (key as PublicKey).value as paillierBigint.PublicKey;
       }
