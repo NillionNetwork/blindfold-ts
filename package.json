@@ -46,6 +46,9 @@
   },
   "dependencies": {
     "@types/node": "^17.0.21",
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/libsodium-wrappers-sumo": "^0.7.8",
+    "libsodium-wrappers-sumo": "^0.7.15",
     "paillier-bigint": "^3.4.3"
   }
 }

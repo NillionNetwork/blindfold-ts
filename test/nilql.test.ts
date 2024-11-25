@@ -30,48 +30,55 @@ describe('namespace', () => {
  */
 describe('input ranges and errors', () => {
   test('types secretKey', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"match": true});
     expect(s).toBeInstanceOf(Object);
   });
 
   test('types secretKey', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"sum": true});
     expect(s).toBeInstanceOf(Object);
   });
 
   test('types publicKey', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"sum": true});
     const p = await nilql.publicKey(s);
     expect(p).toBeInstanceOf(Object);
   });
 
   test('errors secretKey', async () => {
-    const cluster = {"decentralized": false};
+    const cluster = {"nodes": [{}]};
+
+    try {
+      const s = await nilql.secretKey(cluster, null);
+    } catch(e) {
+      expect(e).toStrictEqual(
+        TypeError("valid operations specification is required")
+      );
+    }
+
     try {
       const s = await nilql.secretKey(cluster, {"match": true, "sum": true});
     } catch(e) {
       expect(e).toStrictEqual(
-        TypeError(
-          "cannot create secret key that supports both match and sum operations"
-        )
+        TypeError("secret key must enable exactly one operation")
       );
     }
   });
 
   test('errors publicKey', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"match": true});
     const p = () => nilql.publicKey(s);
     expect(p).toThrow(TypeError);
-    expect(p).toThrow("cannot create public key for this secret key");
+    expect(p).toThrow("cannot create public key for supplied secret key");
   });
 
   test('errors encryption for match operation', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"match": true});
     const plaintext = "x".repeat(4097);
 
     try {
@@ -84,25 +91,29 @@ describe('input ranges and errors', () => {
   });
 
   test('errors encryption for sum operation', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"sum": true});
     const publicKey = await nilql.publicKey(secretKey);
 
-    for (let plaintext of [-123, BigInt(-123), Math.pow(2, 32), BigInt(Math.pow(2, 32))]) {
+    for (let plaintext of [
+      -123, BigInt(-123),
+      -Math.pow(2, 31), Math.pow(2, 31) - 1,
+      -BigInt(Math.pow(2, 31)), BigInt(Math.pow(2, 31)) - BigInt(1),
+    ]) {
       try {
         await nilql.encrypt(publicKey, plaintext);
       } catch(e) {
         expect(e).toStrictEqual(
-          TypeError("plaintext must be 32-bit nonnegative integer value")
+          TypeError("numeric plaintext must be a valid 32-bit signed integer")
         );
       }
     }
   });
 
   test('errors decryption', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": false, "sum": true});
-    const secretKeyAlt = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"sum": true});
+    const secretKeyAlt = await nilql.secretKey(cluster, {"sum": true});
     const publicKey = await nilql.publicKey(secretKey);
   
     const plaintextNumber = 123;
@@ -123,27 +134,27 @@ describe('input ranges and errors', () => {
  */
 describe('functionalities', () => {
   test('secret key creation for sum operation', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"sum": true});
     expect(s.value != null).toEqual(true);
   });
 
   test('public key creation for sum operation', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"sum": true});
     const p = await nilql.publicKey(s);
     expect(p.value != null).toEqual(true);
   });
 
   test('secret key creation for match operation', async () => {
-    const cluster = {"decentralized": false};
-    const s = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const cluster = {"nodes": [{}]};
+    const s = await nilql.secretKey(cluster, {"match": true});
     expect(s.value != null).toEqual(true);
   });
 
   test('encryption of number for match operation', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"match": true});
 
     const plaintextNumber = 123;
     const ciphertextFromNumber = (await nilql.encrypt(secretKey, plaintextNumber) as Uint8Array);
@@ -155,8 +166,8 @@ describe('functionalities', () => {
   });
 
   test('encryption of string for match operation', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": true, "sum": false});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"match": true});
 
     const plaintext = "ABC";
     const ciphertext = (await nilql.encrypt(secretKey, plaintext) as Uint8Array);
@@ -164,8 +175,8 @@ describe('functionalities', () => {
   });
 
   test('encryption for sum operation', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"sum": true});
     const publicKey = await nilql.publicKey(secretKey);
 
     const plaintextNumber = 123;
@@ -178,8 +189,8 @@ describe('functionalities', () => {
   });
 
   test('decryption for sum operation', async () => {
-    const cluster = {"decentralized": false};
-    const secretKey = await nilql.secretKey(cluster, {"match": false, "sum": true});
+    const cluster = {"nodes": [{}]};
+    const secretKey = await nilql.secretKey(cluster, {"sum": true});
     const publicKey = await nilql.publicKey(secretKey);
 
     const plaintextNumber = 123;
@@ -192,4 +203,58 @@ describe('functionalities', () => {
     const decryptedFromBigInt = (await nilql.decrypt(secretKey, ciphertextFromBigInt) as bigint);
     expect(plaintextBigInt === decryptedFromBigInt).toEqual(true);
   });
+});
+
+/**
+ * End-to-end workflow tests.
+ */
+describe('workflows', () => {
+  const clusters = [
+    {"nodes": [{}]},
+    {"nodes": [{}, {}, {}, {}, {}]}
+  ];
+
+  const plaintexts = [
+    BigInt(-(Math.pow(2, 31))), BigInt(Math.pow(2, 31) - 1),
+    BigInt(-1), BigInt(0), BigInt(1), BigInt(2), BigInt(3),
+    "ABC", (new Array(4095).fill("?")).join("")
+  ];
+
+  const numbers = [-(Math.pow(2, 31)), - 1, -3, -2, -1, 0, 1, 2, 3, Math.pow(2, 31) - 1];
+
+  for (const cluster of clusters) {
+    for (const plaintext of plaintexts) {
+      test("end-to-end workflow for store operation", async () => {
+        const secretKey = await nilql.secretKey(cluster, {"store": true});
+        const ciphertext = await nilql.encrypt(secretKey, plaintext);
+        const decrypted = await nilql.decrypt(secretKey, ciphertext);
+        expect(plaintext).toEqual(decrypted);
+      });
+
+      test("end-to-end workflow for match operation", async () => {
+        const secretKey = await nilql.secretKey(cluster, {"match": true});
+        const ciphertext = await nilql.encrypt(secretKey, plaintext);
+        expect(ciphertext != null).toEqual(true);
+      });
+    }
+
+    for (const number of numbers) {
+      test("end-to-end workflow for sum operation: " + number, async () => {
+        const secretKey = await nilql.secretKey(cluster, {"sum": true});
+        const ciphertext = await nilql.encrypt(secretKey, number);
+        const decrypted = await nilql.decrypt(secretKey, ciphertext);
+        expect(BigInt(number)).toEqual(BigInt(decrypted));
+      });
+    }
+  }
+
+  for (const number of numbers) {
+    test("end-to-end workflow for sum operation: " + number, async () => {
+      const secretKey = await nilql.secretKey({"nodes": [{}]}, {"sum": true});
+      const publicKey = await nilql.publicKey(secretKey);
+      const ciphertext = await nilql.encrypt(publicKey, number);
+      const decrypted = await nilql.decrypt(secretKey, ciphertext);
+      expect(BigInt(number)).toEqual(BigInt(decrypted));
+    });
+  }
 });
