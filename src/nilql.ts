@@ -5,24 +5,24 @@ import * as sodium from 'libsodium-wrappers-sumo';
 import * as paillierBigint from 'paillier-bigint';
 
 /**
- * Minimum plaintext integer value that can be encrypted.
+ * Minimum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MIN = BigInt(-2147483648);
 
 /**
- * Maximum plaintext integer value that can be encrypted.
+ * Maximum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MAX = BigInt(2147483647);
-
-/**
- * Maximum length of plaintext string values that can be encrypted.
- */
-const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
 
 /**
  * Modulus to use for additive secret sharing of 32-bit signed integers.
  */
 const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = BigInt(4294967296);
+
+/**
+ * Maximum length of plaintext string values that can be encrypted.
+ */
+const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
 
 /**
  * Cluster configuration information.
@@ -252,21 +252,21 @@ async function encrypt(
   // Ciphertext object to be returned from this invocation.
   let instance: bigint | Uint8Array | bigint[] | Uint8Array[];
 
-  // Encrypting (i.e., hashing) a value for storage and retrieval.
+  // Encrypt a value for storage and retrieval.
   if (key.operations.store) {
     const secretKey = key as SecretKey;
 
-    // Encrypting (i.e., hashing) a `number` or `bigint` instance for matching.
+    // Encrypt a `number` or `bigint` instance for storage and retrieval.
     if (typeof plaintext === "number" || typeof plaintext === "bigint") {
       bytes = Buffer.from(_encode(bigInt));
     }
 
-    // Encrypting (i.e., hashing) a `string` instance for matching requires no
+    // Encrypt a `string` instance for storage and retrieval requires no
     // further work (it is already encoded in `bytes`).
 
     // Encrypt the buffer using the secret key.
     if (key.cluster.nodes.length == 1) {
-      //For single-node clusters, the data is encrypted using a symmetric key.
+      // For single-node clusters, the data is encrypted using a symmetric key.
       const symmetricKey = secretKey.value.symmetricKey;
       await sodium.ready;
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
@@ -277,7 +277,7 @@ async function encrypt(
       const shares: Uint8Array[] = [];
       let aggregate = Buffer.alloc(bytes.length, 0);
       for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
-        const mask = Buffer.alloc(bytes.length, 0);
+        const mask = Buffer.from(sodium.randombytes_buf(bytes.length));
         aggregate = _xor(aggregate, mask);
         shares.push(new Uint8Array(mask));
       }
@@ -286,11 +286,11 @@ async function encrypt(
     }
   }
 
-  // Encrypting (i.e., hashing) a value for matching.
+  // Encrypt (i.e., hash) a value for matching.
   if (key.operations.match) {
     const secretKey = key as SecretKey;
 
-    // Encrypting (i.e., hashing) a `number` or `bigint` instance for matching.
+    // Encrypt (i.e., hash) a `number` or `bigint` instance for matching.
     if (typeof plaintext === "number" || typeof plaintext === "bigint") {
       bytes = Buffer.from(_encode(bigInt));
     }
@@ -307,7 +307,7 @@ async function encrypt(
     }
   }
 
-  // Encrypting a `number` or `bigint` instance for summation.
+  // Encrypt a `number` or `bigint` instance for summation.
   if (key.operations.sum) {
 
     // Only 32-bit signed integer values are supported.
@@ -382,7 +382,7 @@ async function decrypt(
   // Result object to be returned from this invocation.
   let instance: (bigint | string);
 
-  // Decrypting a value that was encrypted for storage.
+  // Decrypt a value that was encrypted for storage.
   if (secretKey.operations.store) {
     // Decrypt based on whether the key is for a a single-node or multi-node cluster.
     if (secretKey.cluster.nodes.length == 1) {
@@ -407,7 +407,7 @@ async function decrypt(
     return instance;
   }
 
-  // Decrypting an encrypted numerical value that supports summation.
+  // Decrypt an encrypted numerical value that supports summation.
   if (secretKey.operations.sum) {
     // Decrypt based on whether the key is for a a single-node or multi-node cluster.
     if (secretKey.cluster.nodes.length == 1) {
