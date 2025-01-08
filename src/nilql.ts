@@ -239,7 +239,7 @@ function publicKey(
 async function encrypt(
   key: PublicKey | SecretKey,
   plaintext: number | bigint | string
-): Promise<bigint | string | bigint[] | string[]>
+): Promise<bigint | string | number[] | string[]>
 {
   // The values below may be used (depending on the plaintext type and the specific
   // kind of encryption being invoked).
@@ -264,7 +264,7 @@ async function encrypt(
   }
 
   // Ciphertext object to be returned from this invocation.
-  let instance: bigint | string | bigint[] | string[];
+  let instance: bigint | string | number[] | string[];
 
   // Encrypt a value for storage and retrieval.
   if (key.operations.store) {
@@ -368,7 +368,7 @@ async function encrypt(
         total = _mod(total + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
       }
       shares.push(_mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS));
-      instance = shares;
+      instance = shares.map(Number);
     }
   }
 
@@ -381,7 +381,7 @@ async function encrypt(
  */
 async function decrypt(
   secretKey: SecretKey,
-  ciphertext: (bigint | bigint[] | string | string[])
+  ciphertext: (bigint | number[] | string | string[])
 ): Promise<bigint | string>
 {
   // Ensure the supplied ciphertext has a type that is compatible with the supplied
@@ -393,7 +393,7 @@ async function decrypt(
   } else {
     if ( !Array.isArray(ciphertext) 
       || (
-            !(ciphertext.every(c => typeof c === "bigint")) &&
+            !(ciphertext.every(c => typeof c === "number")) &&
             !(ciphertext.every(c => typeof c === "string"))
          )
        ) {
@@ -439,10 +439,10 @@ async function decrypt(
       instance += _PLAINTEXT_SIGNED_INTEGER_MIN;
     } else {
       // Multi-node clusters use additive secret sharing.
-      const shares = ciphertext as bigint[];
+      const shares = ciphertext as number[];
       instance = BigInt(0);
       for (const share of shares) {
-        instance = _mod(instance + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
+        instance = _mod(instance + BigInt(share), _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
       }
       if (instance > _PLAINTEXT_SIGNED_INTEGER_MAX) {
         instance -= _SECRET_SHARED_SIGNED_INTEGER_MODULUS;

@@ -160,11 +160,7 @@ describe('representation', () => {
     const cluster = {"nodes": [{}, {}, {}]};
     const secretKey = await nilql.secretKey(cluster, {"sum": true});
     const plaintext = BigInt(123);
-    const ciphertext = [
-      BigInt(456),
-      BigInt(246),
-      BigInt(4294967296) - BigInt(123) - BigInt(456)
-    ];
+    const ciphertext = [456, 246, 4294967296 - 123 - 456];
     const decrypted = await nilql.decrypt(secretKey, ciphertext);
     expect(plaintext).toEqual(decrypted);
   });
