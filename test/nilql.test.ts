@@ -147,11 +147,24 @@ describe('input ranges and errors', () => {
  * Representation compatibility/portability tests.
  */
 describe('representation', () => {
-  test('secret share representation for store operation', async () => {
+  test('secret share representation for store operation with multiple nodes', async () => {
     const cluster = {"nodes": [{}, {}, {}]};
     const secretKey = await nilql.secretKey(cluster, {"store": true});
     const plaintext = "abc";
     const ciphertext = ['Ifkz2Q==', '8nqHOQ==', '0uLWgw=='];
+    const decrypted = await nilql.decrypt(secretKey, ciphertext);
+    expect(plaintext).toEqual(decrypted);
+  });
+
+  test('secret share representation for sum operation with multiple nodes', async () => {
+    const cluster = {"nodes": [{}, {}, {}]};
+    const secretKey = await nilql.secretKey(cluster, {"sum": true});
+    const plaintext = BigInt(123);
+    const ciphertext = [
+      BigInt(456),
+      BigInt(246),
+      BigInt(4294967296) - BigInt(123) - BigInt(456)
+    ];
     const decrypted = await nilql.decrypt(secretKey, ciphertext);
     expect(plaintext).toEqual(decrypted);
   });
