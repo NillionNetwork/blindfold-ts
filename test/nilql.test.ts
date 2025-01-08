@@ -144,6 +144,20 @@ describe('input ranges and errors', () => {
 });
 
 /**
+ * Representation compatibility/portability tests.
+ */
+describe('representation', () => {
+  test('secret share representation for store operation', async () => {
+    const cluster = {"nodes": [{}, {}, {}]};
+    const secretKey = await nilql.secretKey(cluster, {"store": true});
+    const plaintext = "abc";
+    const ciphertext = ['Ifkz2Q==', '8nqHOQ==', '0uLWgw=='];
+    const decrypted = await nilql.decrypt(secretKey, ciphertext);
+    expect(plaintext).toEqual(decrypted);
+  });
+});
+
+/**
  * Tests of functional properties of primitive operators.
  */
 describe('functionalities', () => {
@@ -171,12 +185,12 @@ describe('functionalities', () => {
     const secretKey = await nilql.secretKey(cluster, {"match": true});
 
     const plaintextNumber = 123;
-    const ciphertextFromNumber = (await nilql.encrypt(secretKey, plaintextNumber) as Uint8Array);
-    expect(ciphertextFromNumber.length == 64).toEqual(true);
+    const ciphertextFromNumber = (await nilql.encrypt(secretKey, plaintextNumber) as string);
+    expect(ciphertextFromNumber.length > 64).toEqual(true);
 
     const plaintextBigInt = BigInt(123);
-    const ciphertextFromBigInt = (await nilql.encrypt(secretKey, plaintextBigInt) as Uint8Array);
-    expect(ciphertextFromBigInt.length == 64).toEqual(true);
+    const ciphertextFromBigInt = (await nilql.encrypt(secretKey, plaintextBigInt) as string);
+    expect(ciphertextFromBigInt.length > 64).toEqual(true);
   });
 
   test('encryption of string for match operation', async () => {
@@ -184,8 +198,8 @@ describe('functionalities', () => {
     const secretKey = await nilql.secretKey(cluster, {"match": true});
 
     const plaintext = "ABC";
-    const ciphertext = (await nilql.encrypt(secretKey, plaintext) as Uint8Array);
-    expect(ciphertext.length == 64).toEqual(true);
+    const ciphertext = (await nilql.encrypt(secretKey, plaintext) as string);
+    expect(ciphertext.length > 64).toEqual(true);
   });
 
   test('encryption for sum operation', async () => {

@@ -101,6 +101,20 @@ async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
+ * Encode a bytes-like object as a Base64 string (for compatibility with JSON).
+ */
+function _pack(b: Uint8Array): string {
+  return Buffer.from(b).toString('base64');
+}
+
+/**
+ * Decode a bytes-like object from its Base64 string encoding.
+ */
+function _unpack(s: string): Uint8Array {
+  return new Uint8Array(Buffer.from(s, 'base64'));
+}
+
+/**
  * Encode a numeric value or string as a byte array. The encoding includes
  * information about the type of the value (to enable decoding without any
  * additional context).
@@ -225,7 +239,7 @@ function publicKey(
 async function encrypt(
   key: PublicKey | SecretKey,
   plaintext: number | bigint | string
-): Promise<bigint | Uint8Array | bigint[] | Uint8Array[]>
+): Promise<bigint | string | bigint[] | string[]>
 {
   // The values below may be used (depending on the plaintext type and the specific
   // kind of encryption being invoked).
@@ -250,7 +264,7 @@ async function encrypt(
   }
 
   // Ciphertext object to be returned from this invocation.
-  let instance: bigint | Uint8Array | bigint[] | Uint8Array[];
+  let instance: bigint | string | bigint[] | string[];
 
   // Encrypt a value for storage and retrieval.
   if (key.operations.store) {
@@ -270,7 +284,12 @@ async function encrypt(
       const symmetricKey = secretKey.value.symmetricKey;
       await sodium.ready;
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-      instance = _concat(nonce, sodium.crypto_secretbox_easy(bytes, nonce, symmetricKey));
+      instance = _pack(
+        _concat(
+          nonce,
+          sodium.crypto_secretbox_easy(bytes, nonce, symmetricKey)
+        )
+      );
     } else if (key.cluster.nodes.length > 1) {
       // For multi-node clusters, the ciphertext is secret-shared across the nodes
       // using XOR.
@@ -282,7 +301,7 @@ async function encrypt(
         shares.push(new Uint8Array(mask));
       }
       shares.push(new Uint8Array(_xor(aggregate, Buffer.from(bytes))));
-      instance = shares;
+      instance = shares.map(_pack);
     }
   }
 
@@ -299,11 +318,14 @@ async function encrypt(
     // further work (it is already encoded in `bytes`).
  
     // The deterministic salted hash of the encoded value serves as the ciphertext.
-    instance = await _sha512(_concat(secretKey.value.salt, bytes));
+    const hashed = await _sha512(_concat(secretKey.value.salt, bytes));
+    const packed = _pack(hashed);
 
     // For multi-node clusters, the ciphertext is replicated across all nodes.
-    if (key.cluster.nodes.length > 1) {
-      instance = key.cluster.nodes.map((_) => instance) as Uint8Array[];
+    if (key.cluster.nodes.length == 1) { 
+      instance = packed;
+    } else {
+      instance = key.cluster.nodes.map((_) => packed);
     }
   }
 
@@ -359,20 +381,20 @@ async function encrypt(
  */
 async function decrypt(
   secretKey: SecretKey,
-  ciphertext: (bigint | bigint[] | Uint8Array | Uint8Array[])
+  ciphertext: (bigint | bigint[] | string | string[])
 ): Promise<bigint | string>
 {
   // Ensure the supplied ciphertext has a type that is compatible with the supplied
   // secret key.
   if (secretKey.cluster.nodes.length == 1) {
-    if (typeof ciphertext !== "bigint" && !(ciphertext instanceof Uint8Array)) {
+    if (typeof ciphertext !== "bigint" &&  typeof ciphertext !== "string") {
       throw new TypeError("secret key requires a valid ciphertext from a single-node cluster");
     }
   } else {
     if ( !Array.isArray(ciphertext) 
       || (
             !(ciphertext.every(c => typeof c === "bigint")) &&
-            !(ciphertext.every(c => c instanceof Uint8Array))
+            !(ciphertext.every(c => typeof c === "string"))
          )
        ) {
       throw new TypeError("secret key requires a valid ciphertext from a multi-node cluster");
@@ -389,14 +411,14 @@ async function decrypt(
       // Single-node clusters use symmetric encryption.
       await sodium.ready;
       const symmetricKey = secretKey.value.symmetricKey;
-      const bytes = ciphertext as Uint8Array;
+      const bytes = _unpack(ciphertext as string);
       const nonce = bytes.subarray(0, sodium.crypto_secretbox_NONCEBYTES);
       const cipher = bytes.subarray(sodium.crypto_secretbox_NONCEBYTES);
       const plain = sodium.crypto_secretbox_open_easy(cipher, nonce, symmetricKey);
       instance = _decode(plain);
     } else {
       // Multi-node clusters use XOR-based secret sharing.
-      const shares = ciphertext as Uint8Array[];
+      const shares = (ciphertext as string[]).map(_unpack);
       let bytes = Buffer.from(shares[0]);
       for (let i = 1; i < shares.length; i++) {
         bytes = _xor(bytes, Buffer.from(shares[i]));
