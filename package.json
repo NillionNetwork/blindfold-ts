@@ -25,7 +25,6 @@
     "build": "tsup",
     "test": "vitest run",
     "lint": "biome check",
-    "format": "biome format",
     "typecheck": "tsc",
     "install-hooks": "lefthook install"
   },

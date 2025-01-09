@@ -20,7 +20,7 @@ jobs:
           node-version: "23"
       - uses: pnpm/action-setup@v4
       - run: pnpm install
-      - run: pnpm exec biome ci
+      - run: pnpm biome ci
       - run: pnpm typecheck
 
   test:
