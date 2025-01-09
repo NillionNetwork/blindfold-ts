@@ -1,0 +1,31 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'NPM tag'
+        type: choice
+        required: true
+        options:
+          - next
+          - latest
+
+concurrency:
+  group: "publish"
+  cancel-in-progress: true
+
+  publish-nilql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "23"
+          registry-url: "https://registry.npmjs.org"
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - run: pnpm build
+      - env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --tag ${{ github.event.inputs.tag }}
