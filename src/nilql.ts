@@ -76,8 +76,8 @@ function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
  * Mathematically standard modulus operator.
  */
 const _mod = (n: bigint, m: bigint): bigint => {
-  n = n < 0 ? n + m : n;
-  return ((n % m) + m) % m;
+  const num = n < 0 ? n + m : n;
+  return ((num % m) + m) % m;
 };
 
 /**
@@ -128,7 +128,7 @@ function _encode(value: bigint | string): Uint8Array {
     buffer[0] = 0; // First byte indicates encoded value is a 32-bit signed integer.
     buffer.writeBigInt64LE(value, 1);
     bytes = new Uint8Array(buffer);
-  } else if (typeof value === "string") {
+  } else {
     bytes = new TextEncoder().encode(value);
     const byte = new Uint8Array(1);
     byte[0] = 1; // First byte indicates encoded value is a UTF-8 string.
@@ -145,11 +145,10 @@ function _decode(bytes: Uint8Array): bigint | string {
   if (bytes[0] === 0) {
     // Indicates encoded value is a 32-bit signed integer.
     return Buffer.from(bytes).readBigInt64LE(1);
-  } else if (bytes[0] === 1) {
-    // Indicates encoded value is a UTF-8 string.
-    const decoder = new TextDecoder("utf-8");
-    return decoder.decode(Buffer.from(bytes.subarray(1)));
   }
+  // Indicates encoded value is a UTF-8 string.
+  const decoder = new TextDecoder("utf-8");
+  return decoder.decode(Buffer.from(bytes.subarray(1)));
 }
 
 /**
@@ -157,8 +156,8 @@ function _decode(bytes: Uint8Array): bigint | string {
  * cluster configuration and operation list.
  */
 async function secretKey(
-  cluster: Cluster,
-  operations: Operations,
+  cluster: Cluster | null,
+  operations: Operations | null,
 ): Promise<SecretKey> {
   if (cluster === undefined || cluster === null) {
     throw new TypeError("valid cluster configuration is required");
@@ -180,14 +179,14 @@ async function secretKey(
   }
 
   // Key object to be returned from this invocation.
-  const instance = {
-    value: null,
+  const instance: SecretKey = {
+    value: {},
     cluster: cluster,
     operations: operations,
   };
 
   if (instance.operations.store) {
-    if (instance.cluster.nodes.length == 1) {
+    if (instance.cluster.nodes.length === 1) {
       await sodium.ready;
       instance.value = {
         symmetricKey: sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES),
@@ -202,9 +201,8 @@ async function secretKey(
   }
 
   if (instance.operations.sum) {
-    if (instance.cluster.nodes.length == 1) {
-      const { publicKey, privateKey } =
-        await paillierBigint.generateRandomKeys(2048);
+    if (instance.cluster.nodes.length === 1) {
+      const { privateKey } = await paillierBigint.generateRandomKeys(2048);
       instance.value = privateKey;
     }
     // In a multi-node cluster, secret sharing is used (which does not require a
@@ -215,12 +213,12 @@ async function secretKey(
 }
 
 /**
- * Return a new public key correponding to the supplied secret key (generated
+ * Return a new public key corresponding to the supplied secret key (generated
  * according to any information contained therein).
  */
 function publicKey(secretKey: SecretKey): PublicKey {
-  const instance = {
-    value: null,
+  const instance: PublicKey = {
+    value: {},
     cluster: secretKey.cluster,
     operations: secretKey.operations,
   };
@@ -244,8 +242,8 @@ async function encrypt(
 ): Promise<bigint | string | number[] | string[]> {
   // The values below may be used (depending on the plaintext type and the specific
   // kind of encryption being invoked).
-  let bytes: Buffer;
-  let bigInt: bigint;
+  let bytes: Buffer = Buffer.from(new Uint8Array());
+  let bigInt = 0n;
 
   // Ensure the supplied plaintext is of one of the supported types, check that the
   // value satisfies the constraints, and (if applicable) perform standard conversion
@@ -262,7 +260,7 @@ async function encrypt(
         "numeric plaintext must be a valid 32-bit signed integer",
       );
     }
-  } else if (typeof plaintext === "string") {
+  } else {
     bytes = Buffer.from(_encode(plaintext));
 
     if (bytes.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX) {
@@ -288,7 +286,7 @@ async function encrypt(
     // further work (it is already encoded in `bytes`).
 
     // Encrypt the buffer using the secret key.
-    if (key.cluster.nodes.length == 1) {
+    if (key.cluster.nodes.length === 1 && secretKey.value.symmetricKey) {
       // For single-node clusters, the data is encrypted using a symmetric key.
       const symmetricKey = secretKey.value.symmetricKey;
       await sodium.ready;
@@ -327,11 +325,12 @@ async function encrypt(
     // further work (it is already encoded in `bytes`).
 
     // The deterministic salted hash of the encoded value serves as the ciphertext.
-    const hashed = await _sha512(_concat(secretKey.value.salt, bytes));
+    // biome-ignore lint/style/noNonNullAssertion: nontrivial type refactor so disabling
+    const hashed = await _sha512(_concat(secretKey.value.salt!, bytes));
     const packed = _pack(hashed);
 
     // For multi-node clusters, the ciphertext is replicated across all nodes.
-    if (key.cluster.nodes.length == 1) {
+    if (key.cluster.nodes.length === 1) {
       instance = packed;
     } else {
       instance = key.cluster.nodes.map((_) => packed);
@@ -348,7 +347,7 @@ async function encrypt(
     }
 
     // Encrypt the integer value using either Paillier or additive secret sharing.
-    if (key.cluster.nodes.length == 1) {
+    if (key.cluster.nodes.length === 1) {
       // Use Paillier for single-node clusters.
 
       // Extract public key from secret key if a secret key was supplied and rebuild the
@@ -387,6 +386,7 @@ async function encrypt(
     }
   }
 
+  // @ts-expect-error: fixing requires an out-of-scope type refactor
   return instance;
 }
 
@@ -400,7 +400,7 @@ async function decrypt(
 ): Promise<bigint | string> {
   // Ensure the supplied ciphertext has a type that is compatible with the supplied
   // secret key.
-  if (secretKey.cluster.nodes.length == 1) {
+  if (secretKey.cluster.nodes.length === 1) {
     if (typeof ciphertext !== "bigint" && typeof ciphertext !== "string") {
       throw new TypeError(
         "secret key requires a valid ciphertext from a single-node cluster",
@@ -423,8 +423,8 @@ async function decrypt(
 
   // Decrypt a value that was encrypted for storage.
   if (secretKey.operations.store) {
-    // Decrypt based on whether the key is for a a single-node or multi-node cluster.
-    if (secretKey.cluster.nodes.length == 1) {
+    // Decrypt based on whether the key is for a single-node or multi-node cluster.
+    if (secretKey.cluster.nodes.length === 1 && secretKey.value.symmetricKey) {
       // Single-node clusters use symmetric encryption.
       await sodium.ready;
       const symmetricKey = secretKey.value.symmetricKey;
@@ -442,7 +442,7 @@ async function decrypt(
       const shares = (ciphertext as string[]).map(_unpack);
       let bytes = Buffer.from(shares[0]);
       for (let i = 1; i < shares.length; i++) {
-        bytes = _xor(bytes, Buffer.from(shares[i]));
+        bytes = Buffer.from(_xor(bytes, Buffer.from(shares[i])));
       }
       instance = _decode(bytes);
     }
@@ -452,8 +452,8 @@ async function decrypt(
 
   // Decrypt an encrypted numerical value that supports summation.
   if (secretKey.operations.sum) {
-    // Decrypt based on whether the key is for a a single-node or multi-node cluster.
-    if (secretKey.cluster.nodes.length == 1) {
+    // Decrypt based on whether the key is for a single-node or multi-node cluster.
+    if (secretKey.cluster.nodes.length === 1) {
       // Single-node clusters use Paillier ciphertexts.
       const paillierPrivateKey = secretKey.value as paillierBigint.PrivateKey;
       instance = paillierPrivateKey.decrypt(ciphertext as bigint);
@@ -482,11 +482,11 @@ async function decrypt(
 }
 
 /**
- * Export overall wrapper class.
+ * Export library wrapper.
  */
-export class nilql {
-  public static secretKey = secretKey;
-  public static publicKey = publicKey;
-  public static encrypt = encrypt;
-  public static decrypt = decrypt;
-}
+export const nilql = {
+  secretKey,
+  publicKey,
+  encrypt,
+  decrypt,
+} as const;
