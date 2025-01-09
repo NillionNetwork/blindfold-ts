@@ -22,6 +22,9 @@
     "typecheck": "tsc",
     "install-hooks": "lefthook install"
   },
+  "engines": {
+    "node": ">=23"
+  },
   "dependencies": {
     "libsodium-wrappers-sumo": "^0.7.15",
     "paillier-bigint": "^3.4.3"
