@@ -2,38 +2,33 @@
   "name": "@nillion/nilql",
   "version": "0.1.0",
   "description": "Library for working with encrypted data within NilDB queries and replies.",
-  "main": "build/nilql.js",
-  "types": "build/nilql.d.ts",
-  "directories": {
-    "test": "test"
-  },
-  "files": [
-    "package.json",
-    "README.md",
-    "build/**",
-    "dist/**"
-  ],
-  "scripts": {
-    "build": "tsc",
-    "test": "jest --coverage",
-    "lint": "eslint src"
+  "license": "MIT",
+  "homepage": "https://github.com/nillionnetwork/nilql-ts",
+  "bugs": {
+    "url": "https://github.com/nillionnetwork/nilql-ts/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nillionnetwork/nilql-ts.git"
   },
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/nillionnetwork/nilql-ts/issues"
+  "main": "dist/nilql.js",
+  "types": "dist/nilql.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "test": "jest --coverage",
+    "lint": "eslint src"
   },
-  "homepage": "https://github.com/nillionnetwork/nilql-ts",
+  "dependencies": {
+    "libsodium-wrappers-sumo": "^0.7.15",
+    "paillier-bigint": "^3.4.3"
+  },
   "devDependencies": {
     "@eslint/json": "^0.6.0",
     "@eslint/markdown": "^6.2.1",
     "@types/jest": "^29.5.12",
-    "@types/node": "17.0.21",
     "@types/libsodium-wrappers": "^0.7.14",
     "@types/libsodium-wrappers-sumo": "^0.7.8",
+    "@types/node": "17.0.21",
     "@typescript-eslint/eslint-plugin": "^8.12.2",
     "@typescript-eslint/parser": "^8.12.2",
     "eslint": "^9.14.0",
@@ -43,12 +38,17 @@
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.1",
     "ts-node": "^10.9.2",
+    "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.11.0"
   },
-  "dependencies": {
-    "libsodium-wrappers-sumo": "^0.7.15",
-    "paillier-bigint": "^3.4.3"
+  "directories": {
+    "test": "test"
   },
+  "files": [
+    "package.json",
+    "README.md",
+    "dist/**"
+  ],
   "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c"
 }
