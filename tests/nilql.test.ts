@@ -4,7 +4,8 @@
  * as well as unit tests confirming algebraic relationships among primitives.
  */
 
-import { nilql } from '../src/nilql';
+import { describe, expect, test } from "vitest";
+import { nilql } from "#/nilql";
 
 /**
  * API symbols that should be available to users upon module import.
