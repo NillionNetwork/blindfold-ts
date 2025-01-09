@@ -1,7 +1,7 @@
 /**
  * NilQL: Library for working with encrypted data within NilDB queries and replies.
  */
-import * as sodium from "libsodium-wrappers-sumo";
+import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
 /**
@@ -187,7 +187,6 @@ async function secretKey(
 
   if (instance.operations.store) {
     if (instance.cluster.nodes.length === 1) {
-      await sodium.ready;
       instance.value = {
         symmetricKey: sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES),
       };
@@ -240,6 +239,8 @@ async function encrypt(
   key: PublicKey | SecretKey,
   plaintext: number | bigint | string,
 ): Promise<bigint | string | number[] | string[]> {
+  await sodium.ready;
+
   // The values below may be used (depending on the plaintext type and the specific
   // kind of encryption being invoked).
   let bytes: Buffer = Buffer.from(new Uint8Array());
@@ -289,7 +290,6 @@ async function encrypt(
     if (key.cluster.nodes.length === 1 && secretKey.value.symmetricKey) {
       // For single-node clusters, the data is encrypted using a symmetric key.
       const symmetricKey = secretKey.value.symmetricKey;
-      await sodium.ready;
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
       instance = _pack(
         _concat(
@@ -398,6 +398,8 @@ async function decrypt(
   secretKey: SecretKey,
   ciphertext: bigint | number[] | string | string[],
 ): Promise<bigint | string> {
+  await sodium.ready;
+
   // Ensure the supplied ciphertext has a type that is compatible with the supplied
   // secret key.
   if (secretKey.cluster.nodes.length === 1) {
@@ -426,7 +428,6 @@ async function decrypt(
     // Decrypt based on whether the key is for a single-node or multi-node cluster.
     if (secretKey.cluster.nodes.length === 1 && secretKey.value.symmetricKey) {
       // Single-node clusters use symmetric encryption.
-      await sodium.ready;
       const symmetricKey = secretKey.value.symmetricKey;
       const bytes = _unpack(ciphertext as string);
       const nonce = bytes.subarray(0, sodium.crypto_secretbox_NONCEBYTES);
