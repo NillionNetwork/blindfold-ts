@@ -12,8 +12,15 @@
     "url": "git+https://github.com/nillionnetwork/nilql-ts.git"
   },
   "type": "module",
-  "main": "dist/nilql.js",
-  "types": "dist/nilql.d.ts",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
@@ -44,6 +51,6 @@
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^2.1.8"
   },
-  "files": ["package.json", "README.md", "dist/**"],
+  "files": ["dist"],
   "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c"
 }
