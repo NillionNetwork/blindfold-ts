@@ -43,23 +43,114 @@ interface Operations {
 /**
  * Data structure for representing all categories of secret key.
  */
-interface SecretKey {
+class SecretKey {
   value: {
-    publicKey?: object;
+    publicKey?: {
+      n: bigint;
+      g: bigint;
+    };
+    lambda?: bigint;
+    mu?: bigint;
     salt?: Uint8Array;
     symmetricKey?: Uint8Array;
   };
   cluster: Cluster;
   operations: Operations;
+
+  constructor(cluster: Cluster | null, operations: Operations | null) {
+    if (cluster === undefined || cluster === null) {
+      throw new TypeError("valid cluster configuration is required");
+    }
+
+    if (cluster.nodes === undefined || cluster.nodes.length < 1) {
+      throw new TypeError(
+        "cluster configuration must contain at least one node",
+      );
+    }
+
+    if (operations === undefined || operations === null) {
+      throw new TypeError("valid operations specification is required");
+    }
+
+    if (
+      Object.keys(operations).length !== 1 ||
+      (!operations.store && !operations.match && !operations.sum)
+    ) {
+      throw new TypeError("secret key must enable exactly one operation");
+    }
+
+    this.value = {};
+    this.cluster = cluster;
+    this.operations = operations;
+
+    if (this.operations.store) {
+      if (this.cluster.nodes.length === 1) {
+        this.value = {
+          symmetricKey: sodium.randombytes_buf(
+            sodium.crypto_secretbox_KEYBYTES,
+          ),
+        };
+      }
+    }
+
+    if (this.operations.match) {
+      this.value = { salt: sodium.randombytes_buf(64) };
+    }
+
+    // For the sum operation, initialization within `generate` is required.
+  }
+
+  /**
+   * Generate a new secret key built according to what is specified in the supplied
+   * cluster configuration and operation list.
+   */
+  public static async generate(
+    cluster: Cluster | null,
+    operations: Operations | null,
+  ): Promise<SecretKey> {
+    const secretKey = new SecretKey(cluster, operations);
+    if (secretKey instanceof SecretKey && secretKey.operations.sum) {
+      if (secretKey.cluster.nodes.length === 1) {
+        const { privateKey } = await paillierBigint.generateRandomKeys(2048);
+        secretKey.value = privateKey;
+      }
+      // In a multi-node cluster, secret sharing is used (which does not require a
+      // secret key value).
+    }
+    return secretKey;
+  }
 }
 
 /**
  * Data structure for representing all categories of public key.
  */
-interface PublicKey {
-  value: object;
+class PublicKey {
+  value: {
+    n?: bigint;
+    g?: bigint;
+  };
   cluster: Cluster;
   operations: Operations;
+
+  constructor(secretKey: SecretKey) {
+    this.value = {};
+    this.cluster = secretKey.cluster;
+    this.operations = secretKey.operations;
+
+    if (secretKey?.value?.publicKey != null) {
+      this.value = secretKey.value.publicKey;
+    } else {
+      throw new TypeError("cannot create public key for supplied secret key");
+    }
+  }
+
+  /**
+   * Generate a new public key corresponding to the supplied secret key (generated
+   * according to any information contained therein).
+   */
+  public static async generate(secretKey: SecretKey): Promise<PublicKey> {
+    return new PublicKey(secretKey);
+  }
 }
 
 /**
@@ -159,76 +250,8 @@ async function secretKey(
   cluster: Cluster | null,
   operations: Operations | null,
 ): Promise<SecretKey> {
-  if (cluster === undefined || cluster === null) {
-    throw new TypeError("valid cluster configuration is required");
-  }
-
-  if (cluster.nodes === undefined || cluster.nodes.length < 1) {
-    throw new TypeError("cluster configuration must contain at least one node");
-  }
-
-  if (operations === undefined || operations === null) {
-    throw new TypeError("valid operations specification is required");
-  }
-
-  if (
-    Object.keys(operations).length !== 1 ||
-    (!operations.store && !operations.match && !operations.sum)
-  ) {
-    throw new TypeError("secret key must enable exactly one operation");
-  }
-
   // Key object to be returned from this invocation.
-  const instance: SecretKey = {
-    value: {},
-    cluster: cluster,
-    operations: operations,
-  };
-
-  if (instance.operations.store) {
-    if (instance.cluster.nodes.length === 1) {
-      instance.value = {
-        symmetricKey: sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES),
-      };
-    }
-  }
-
-  if (instance.operations.match) {
-    const salt = new Uint8Array(64);
-    crypto.getRandomValues(salt);
-    instance.value = { salt: salt };
-  }
-
-  if (instance.operations.sum) {
-    if (instance.cluster.nodes.length === 1) {
-      const { privateKey } = await paillierBigint.generateRandomKeys(2048);
-      instance.value = privateKey;
-    }
-    // In a multi-node cluster, secret sharing is used (which does not require a
-    // secret key value).
-  }
-
-  return instance;
-}
-
-/**
- * Return a new public key corresponding to the supplied secret key (generated
- * according to any information contained therein).
- */
-function publicKey(secretKey: SecretKey): PublicKey {
-  const instance: PublicKey = {
-    value: {},
-    cluster: secretKey.cluster,
-    operations: secretKey.operations,
-  };
-
-  if (secretKey?.value?.publicKey != null) {
-    instance.value = secretKey.value.publicKey;
-  } else {
-    throw new TypeError("cannot create public key for supplied secret key");
-  }
-
-  return instance;
+  return SecretKey.generate(cluster, operations);
 }
 
 /**
@@ -362,10 +385,11 @@ async function encrypt(
         paillierPublicKey = (key as PublicKey)
           .value as paillierBigint.PublicKey;
       }
+
       // Construct again to gain access to methods.
       paillierPublicKey = new paillierBigint.PublicKey(
-        BigInt(paillierPublicKey.n),
-        BigInt(paillierPublicKey.g),
+        paillierPublicKey.n,
+        paillierPublicKey.g,
       );
       instance = paillierPublicKey.encrypt(
         bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN,
@@ -486,8 +510,8 @@ async function decrypt(
  * Export library wrapper.
  */
 export const nilql = {
-  secretKey,
-  publicKey,
+  SecretKey,
+  PublicKey,
   encrypt,
   decrypt,
 } as const;
