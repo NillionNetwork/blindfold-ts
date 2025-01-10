@@ -1,0 +1,23 @@
+pre-commit:
+  commands:
+    biome-format:
+      glob: "*.{ts,json,jsonc}"
+      run: pnpm exec biome format --write --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  commands:
+    lint-commit-msg:
+      run: pnpm commitlint --edit
+
+pre-push:
+  commands:
+    biome-check:
+      glob: "*.{ts,json,jsonc}"
+      run: pnpm biome check --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {push_files}
+    tsc-check:
+      glob: "*.{ts}"
+      run: pnpm exec tsc
+    test:
+      glob: "*.{ts}"
+      run: pnpm test
