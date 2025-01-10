@@ -20,7 +20,7 @@ An example demonstrating use of the library is presented below:
 
 ```ts
 const cluster = {"nodes": [{}, {}]};
-const secretKey = await nilql.secretKey(cluster, {"sum": true});
+const secretKey = await nilql.SecretKey.generate(cluster, {"sum": true});
 const plaintext = BigInt(123);
 const ciphertext = await nilql.encrypt(secretKey, plaintext);
 const decrypted = await nilql.decrypt(secretKey, ciphertext);
