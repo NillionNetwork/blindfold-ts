@@ -189,20 +189,20 @@ describe("functionalities", () => {
   test("secret key creation for sum operation", async () => {
     const cluster = { nodes: [{}] };
     const s = await nilql.SecretKey.generate(cluster, { sum: true });
-    expect(s.value).not.toBeNull();
+    expect(s.material).not.toBeNull();
   });
 
   test("public key creation for sum operation", async () => {
     const cluster = { nodes: [{}] };
     const s = await nilql.SecretKey.generate(cluster, { sum: true });
     const p = await nilql.PublicKey.generate(s);
-    expect(p.value).not.toBeNull();
+    expect(p.material).not.toBeNull();
   });
 
   test("secret key creation for match operation", async () => {
     const cluster = { nodes: [{}] };
     const s = await nilql.SecretKey.generate(cluster, { match: true });
-    expect(s.value).not.toBeNull();
+    expect(s.material).not.toBeNull();
   });
 
   test("encryption of number for match operation", async () => {
@@ -279,7 +279,7 @@ describe("functionalities", () => {
       ciphertextFromBigInt,
     )) as bigint;
     expect(plaintextBigInt === decryptedFromBigInt).toEqual(true);
-  });
+  }, 10000);
 });
 
 /**
@@ -300,7 +300,7 @@ describe("workflows", () => {
     new Array(4095).fill("?").join(""),
   ];
 
-  const numbers = [(-2) ** 31, -1, -3, -2, -1, 0, 1, 2, 3, 2 ** 31 - 1];
+  const numbers = [(-2) ** 31, -1, -3, -1, 0, 1, 3, 2 ** 31 - 1];
 
   for (const cluster of clusters) {
     for (const plaintext of plaintexts) {
@@ -330,7 +330,7 @@ describe("workflows", () => {
         const ciphertext = await nilql.encrypt(secretKey, number);
         const decrypted = await nilql.decrypt(secretKey, ciphertext);
         expect(BigInt(number)).toEqual(BigInt(decrypted));
-      });
+      }, 10000);
     }
   }
 

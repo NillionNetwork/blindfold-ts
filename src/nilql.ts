@@ -44,20 +44,11 @@ interface Operations {
  * Data structure for representing all categories of secret key.
  */
 class SecretKey {
-  value: {
-    publicKey?: {
-      n: bigint;
-      g: bigint;
-    };
-    lambda?: bigint;
-    mu?: bigint;
-    salt?: Uint8Array;
-    symmetricKey?: Uint8Array;
-  };
+  material: object;
   cluster: Cluster;
   operations: Operations;
 
-  constructor(cluster: Cluster | null, operations: Operations | null) {
+  private constructor(cluster: Cluster | null, operations: Operations | null) {
     if (cluster === undefined || cluster === null) {
       throw new TypeError("valid cluster configuration is required");
     }
@@ -79,25 +70,23 @@ class SecretKey {
       throw new TypeError("secret key must enable exactly one operation");
     }
 
-    this.value = {};
+    this.material = {};
     this.cluster = cluster;
     this.operations = operations;
 
     if (this.operations.store) {
       if (this.cluster.nodes.length === 1) {
-        this.value = {
-          symmetricKey: sodium.randombytes_buf(
-            sodium.crypto_secretbox_KEYBYTES,
-          ),
-        };
+        this.material = sodium.randombytes_buf(
+          sodium.crypto_secretbox_KEYBYTES,
+        );
       }
     }
 
     if (this.operations.match) {
-      this.value = { salt: sodium.randombytes_buf(64) };
+      this.material = sodium.randombytes_buf(64); // Salt for hashing.
     }
 
-    // For the sum operation, initialization within `generate` is required.
+    // For the sum operation, initialization must occur within `generate`.
   }
 
   /**
@@ -112,7 +101,7 @@ class SecretKey {
     if (secretKey instanceof SecretKey && secretKey.operations.sum) {
       if (secretKey.cluster.nodes.length === 1) {
         const { privateKey } = await paillierBigint.generateRandomKeys(2048);
-        secretKey.value = privateKey;
+        secretKey.material = privateKey;
       }
       // In a multi-node cluster, secret sharing is used (which does not require a
       // secret key value).
@@ -125,28 +114,27 @@ class SecretKey {
  * Data structure for representing all categories of public key.
  */
 class PublicKey {
-  value: {
-    n?: bigint;
-    g?: bigint;
-  };
+  material: object;
   cluster: Cluster;
   operations: Operations;
 
-  constructor(secretKey: SecretKey) {
-    this.value = {};
+  private constructor(secretKey: SecretKey) {
     this.cluster = secretKey.cluster;
     this.operations = secretKey.operations;
 
-    if (secretKey?.value?.publicKey != null) {
-      this.value = secretKey.value.publicKey;
+    if (
+      "publicKey" in secretKey.material &&
+      secretKey.material.publicKey instanceof paillierBigint.PublicKey
+    ) {
+      this.material = secretKey.material.publicKey;
     } else {
       throw new TypeError("cannot create public key for supplied secret key");
     }
   }
 
   /**
-   * Generate a new public key corresponding to the supplied secret key (generated
-   * according to any information contained therein).
+   * Generate a new public key corresponding to the supplied secret key
+   * according to any information contained therein.
    */
   public static async generate(secretKey: SecretKey): Promise<PublicKey> {
     return new PublicKey(secretKey);
@@ -310,9 +298,9 @@ async function encrypt(
     // further work (it is already encoded in `bytes`).
 
     // Encrypt the buffer using the secret key.
-    if (key.cluster.nodes.length === 1 && secretKey.value.symmetricKey) {
+    if (key.cluster.nodes.length === 1) {
       // For single-node clusters, the data is encrypted using a symmetric key.
-      const symmetricKey = secretKey.value.symmetricKey;
+      const symmetricKey = secretKey.material as Uint8Array;
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
       instance = _pack(
         _concat(
@@ -348,8 +336,9 @@ async function encrypt(
     // further work (it is already encoded in `bytes`).
 
     // The deterministic salted hash of the encoded value serves as the ciphertext.
-    // biome-ignore lint/style/noNonNullAssertion: nontrivial type refactor so disabling
-    const hashed = await _sha512(_concat(secretKey.value.salt!, bytes));
+    const hashed = await _sha512(
+      _concat(secretKey.material as Uint8Array, bytes),
+    );
     const packed = _pack(hashed);
 
     // For multi-node clusters, the ciphertext is replicated across all nodes.
@@ -377,13 +366,13 @@ async function encrypt(
       // public key object for the Paillier library.
       let paillierPublicKey: paillierBigint.PublicKey;
 
-      if ("publicKey" in key.value) {
+      if ("publicKey" in key.material) {
         // Secret key was supplied.
-        paillierPublicKey = key.value.publicKey as paillierBigint.PublicKey;
+        paillierPublicKey = key.material.publicKey as paillierBigint.PublicKey;
       } else {
         // Public key was supplied.
         paillierPublicKey = (key as PublicKey)
-          .value as paillierBigint.PublicKey;
+          .material as paillierBigint.PublicKey;
       }
 
       // Construct again to gain access to methods.
@@ -450,9 +439,9 @@ async function decrypt(
   // Decrypt a value that was encrypted for storage.
   if (secretKey.operations.store) {
     // Decrypt based on whether the key is for a single-node or multi-node cluster.
-    if (secretKey.cluster.nodes.length === 1 && secretKey.value.symmetricKey) {
+    if (secretKey.cluster.nodes.length === 1) {
       // Single-node clusters use symmetric encryption.
-      const symmetricKey = secretKey.value.symmetricKey;
+      const symmetricKey = secretKey.material as Uint8Array;
       const bytes = _unpack(ciphertext as string);
       const nonce = bytes.subarray(0, sodium.crypto_secretbox_NONCEBYTES);
       const cipher = bytes.subarray(sodium.crypto_secretbox_NONCEBYTES);
@@ -480,7 +469,8 @@ async function decrypt(
     // Decrypt based on whether the key is for a single-node or multi-node cluster.
     if (secretKey.cluster.nodes.length === 1) {
       // Single-node clusters use Paillier ciphertexts.
-      const paillierPrivateKey = secretKey.value as paillierBigint.PrivateKey;
+      const paillierPrivateKey =
+        secretKey.material as paillierBigint.PrivateKey;
       instance = paillierPrivateKey.decrypt(ciphertext as bigint);
       instance += _PLAINTEXT_SIGNED_INTEGER_MIN;
     } else {
