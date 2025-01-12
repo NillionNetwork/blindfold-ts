@@ -174,15 +174,16 @@ class SecretKey {
         throw errorInvalid;
       }
 
-      if (
-        !(typeof material.lam === "string" && typeof material.mu === "string")
-      ) {
-        throw errorInvalid;
-      }
-
       const pub = material.pub as object;
 
-      if (!("n" in pub && "g" in pub)) {
+      if (
+        !(
+          typeof material.lam === "string" &&
+          typeof material.mu === "string" &&
+          "n" in pub &&
+          "g" in pub
+        )
+      ) {
         throw errorInvalid;
       }
 
@@ -445,7 +446,7 @@ async function encrypt(
       bytes = Buffer.from(_encode(bigInt));
     }
 
-    // Encrypt a `string` instance for storage and retrieval requires no
+    // Encrypting a `string` instance for storage and retrieval requires no
     // further work (it is already encoded in `bytes`).
 
     // Encrypt the buffer using the secret key.
@@ -580,6 +581,12 @@ async function decrypt(
     ) {
       throw new TypeError(
         "secret key requires a valid ciphertext from a multi-node cluster",
+      );
+    }
+
+    if (secretKey.cluster.nodes.length !== ciphertext.length) {
+      throw new TypeError(
+        "secret key and ciphertext must have the same associated cluster size",
       );
     }
   }
