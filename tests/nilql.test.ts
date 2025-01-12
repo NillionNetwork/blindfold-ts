@@ -160,6 +160,76 @@ describe("input ranges and errors", () => {
 });
 
 /**
+ * Tests of dumping and loading methods of cryptographic key classes.
+ */
+describe("dumping and loading of cryptographic keys", () => {
+  const clusters = [{ nodes: [{}] }, { nodes: [{}, {}, {}] }];
+
+  for (const cluster of clusters) {
+    test("dump and load key for store operation", async () => {
+      const secretKey = await nilql.SecretKey.generate(cluster, {
+        store: true,
+      });
+
+      const secretKeyObject = secretKey.dump();
+      const secretKeyLoaded = nilql.SecretKey.load(secretKeyObject);
+
+      const plaintext = "abc";
+      const ciphertext = await nilql.encrypt(secretKey, plaintext);
+      const decrypted = await nilql.decrypt(secretKeyLoaded, ciphertext);
+      expect(plaintext).toEqual(decrypted);
+    });
+
+    test("dump and load key for match operation", async () => {
+      const secretKey = await nilql.SecretKey.generate(cluster, {
+        match: true,
+      });
+
+      const secretKeyObject = secretKey.dump();
+      const secretKeyLoaded = nilql.SecretKey.load(secretKeyObject);
+
+      const plaintext = "abc";
+      const ciphertext = await nilql.encrypt(secretKey, plaintext);
+      const ciphertextViaLoaded = await nilql.encrypt(
+        secretKeyLoaded,
+        plaintext,
+      );
+      expect(ciphertextViaLoaded).toEqual(ciphertext);
+    });
+  }
+
+  test("dump and load keys for sum operation with single node", async () => {
+    const cluster = { nodes: [{}] };
+    const secretKey = await nilql.SecretKey.generate(cluster, { sum: true });
+    const publicKey = await nilql.PublicKey.generate(secretKey);
+
+    const secretKeyObject = secretKey.dump();
+    const secretKeyLoaded = nilql.SecretKey.load(secretKeyObject);
+
+    const publicKeyObject = publicKey.dump();
+    const publicKeyLoaded = nilql.PublicKey.load(publicKeyObject);
+
+    const plaintext = BigInt(123);
+    const ciphertext = await nilql.encrypt(publicKeyLoaded, plaintext);
+    const decrypted = await nilql.decrypt(secretKeyLoaded, ciphertext);
+    expect(plaintext).toEqual(decrypted);
+  });
+
+  test("dump and load key for sum operation with multiple nodes", async () => {
+    const cluster = { nodes: [{}, {}, {}] };
+    const secretKey = await nilql.SecretKey.generate(cluster, { sum: true });
+
+    const secretKeyObject = secretKey.dump();
+    const secretKeyLoaded = nilql.SecretKey.load(secretKeyObject);
+
+    const plaintext = BigInt(123);
+    const ciphertext = await nilql.encrypt(secretKey, plaintext);
+    const decrypted = await nilql.decrypt(secretKeyLoaded, ciphertext);
+    expect(plaintext).toEqual(decrypted);
+  });
+});
+
+/**
  * Representation compatibility/portability tests.
  */
 describe("representation", () => {

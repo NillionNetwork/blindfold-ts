@@ -108,6 +108,100 @@ class SecretKey {
     }
     return secretKey;
   }
+
+  /**
+   * Return a JSON-compatible object representation of the key instance.
+   */
+  public dump(): object {
+    const object = {
+      material: {},
+      cluster: this.cluster,
+      operations: this.operations,
+    };
+
+    if (this.material instanceof Uint8Array) {
+      object.material = _pack(this.material);
+    } else if (
+      "publicKey" in this.material &&
+      "lambda" in this.material &&
+      "mu" in this.material
+    ) {
+      const privateKey = this.material as {
+        publicKey: { n: bigint; g: bigint };
+        lambda: bigint;
+        mu: bigint;
+      };
+      object.material = {
+        pub: {
+          n: privateKey.publicKey.n.toString(),
+          g: privateKey.publicKey.g.toString(),
+        },
+        lam: privateKey.lambda.toString(),
+        mu: privateKey.mu.toString(),
+      };
+    }
+
+    return object;
+  }
+
+  /**
+   * Create an instance from its JSON-compatible object representation.
+   */
+  public static load(object: object): SecretKey {
+    const errorInvalid = new TypeError(
+      "invalid object representation of a secret key",
+    );
+
+    if (
+      !("material" in object && "cluster" in object && "operations" in object)
+    ) {
+      throw errorInvalid;
+    }
+
+    const secretKey = new SecretKey(
+      object.cluster as Cluster,
+      object.operations as Operations,
+    );
+
+    const material = object.material as object;
+
+    if (Object.keys(material).length === 0) {
+      // There is no key material for clusters with multiple nodes.
+    } else if (typeof material === "string") {
+      secretKey.material = _unpack(material);
+    } else {
+      if (!("lam" in material && "mu" in material && "pub" in material)) {
+        throw errorInvalid;
+      }
+
+      if (
+        !(typeof material.lam === "string" && typeof material.mu === "string")
+      ) {
+        throw errorInvalid;
+      }
+
+      const pub = material.pub as object;
+
+      if (!("n" in pub && "g" in pub)) {
+        throw errorInvalid;
+      }
+
+      if (!(typeof pub.n === "string" && typeof pub.g === "string")) {
+        throw errorInvalid;
+      }
+
+      secretKey.material = new paillierBigint.PrivateKey(
+        BigInt(material.lam as string),
+        BigInt(material.mu as string),
+        new paillierBigint.PublicKey(
+          BigInt(pub.n as string),
+          BigInt(pub.g as string),
+        ),
+      );
+    }
+
+    return secretKey;
+  }
 }
 
 /**
@@ -138,6 +232,63 @@ class PublicKey {
    */
   public static async generate(secretKey: SecretKey): Promise<PublicKey> {
     return new PublicKey(secretKey);
+  }
+
+  /**
+   * Return a JSON-compatible object representation of the key instance.
+   */
+  public dump(): object {
+    const object = {
+      material: {},
+      cluster: this.cluster,
+      operations: this.operations,
+    };
+
+    if ("n" in this.material && "g" in this.material) {
+      const publicKey = this.material as paillierBigint.PublicKey;
+      object.material = {
+        n: publicKey.n.toString(),
+        g: publicKey.g.toString(),
+      };
+    }
+
+    return object;
+  }
+
+  /**
+   * Create an instance from its JSON-compatible object representation.
+   */
+  public static load(object: object): PublicKey {
+    const errorInvalid = new TypeError(
+      "invalid object representation of a public key",
+    );
+
+    if (
+      !("material" in object && "cluster" in object && "operations" in object)
+    ) {
+      throw errorInvalid;
+    }
+
+    const publicKey = {} as PublicKey;
+    publicKey.cluster = object.cluster as Cluster;
+    publicKey.operations = object.operations as Operations;
+
+    const material = object.material as object;
+
+    if (!("n" in material && "g" in material)) {
+      throw errorInvalid;
+    }
+
+    if (!(typeof material.n === "string" && typeof material.g === "string")) {
+      throw errorInvalid;
+    }
+
+    publicKey.material = new paillierBigint.PublicKey(
+      BigInt(material.n as string),
+      BigInt(material.g as string),
+    );
+
+    return publicKey;
   }
 }
 
