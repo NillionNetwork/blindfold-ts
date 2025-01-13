@@ -25,8 +25,8 @@ jobs:
           node-version: "23"
       - name: Prepare tools
         uses: pnpm/action-setup@v4
-        run: pnpm install
       - name: Run linting and type checking
+        run: pnpm install
         run: pnpm biome ci
         run: pnpm typecheck
 
@@ -42,8 +42,8 @@ jobs:
           node-version: "23"
       - name: Prepare tools
         uses: pnpm/action-setup@v4
-        run: pnpm install
       - name: Run tests
+        run: pnpm install
         run: pnpm vitest --coverage
       - name: Report coverage
         uses: davelosert/vitest-coverage-report-action@v2
