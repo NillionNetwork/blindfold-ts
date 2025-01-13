@@ -14,7 +14,7 @@ on:
 concurrency:
   group: "publish"
   cancel-in-progress: true
-
+jobs:
   publish-nilql:
     runs-on: ubuntu-latest
     steps:
@@ -28,4 +28,4 @@ concurrency:
       - run: pnpm build
       - env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm --tag ${{ github.event.inputs.tag }}
+        run: pnpm publish --tag ${{ github.event.inputs.tag }}
