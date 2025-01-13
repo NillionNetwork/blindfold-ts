@@ -1,7 +1,7 @@
 # nilQL
 [![npm](https://badge.fury.io/js/nilql.svg)](https://www.npmjs.com/package/@nillion/nilql)
 [![ci](https://github.com/nillionnetwork/nilql-ts/actions/workflows/ci.yaml/badge.svg)](https://github.com/nillionnetwork/nilql-ts/actions)
-[![coveralls](https://coveralls.io/repos/github/nillionnetwork/nilql-ts/badge.svg?branch=main)](https://coveralls.io/github/NillionNetwork/nilql-ts)
+[![coveralls](https://coveralls.io/repos/github/NillionNetwork/nilql-ts/badge.svg?branch=main)](https://coveralls.io/github/NillionNetwork/nilql-ts)
 
 Library for working with encrypted data within nilDB queries and replies.
 
