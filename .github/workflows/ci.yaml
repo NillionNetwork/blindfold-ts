@@ -46,7 +46,8 @@ jobs:
       - name: Run tests
         run: |
           pnpm install
-          pnpm vitest --coverage --reporter=json --coverage.report=json-summary
+          pnpm install coveralls
+          pnpm vitest --coverage
       - name: Report coverage
         uses: davelosert/vitest-coverage-report-action@v2
         if: always()
