@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -12,6 +15,7 @@ concurrency:
 
 jobs:
   check:
+    name: Lint and check types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +28,7 @@ jobs:
       - run: pnpm typecheck
 
   test:
+    name: Test and report coverage
     needs: check
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +37,7 @@ jobs:
         with:
           node-version: "23"
       - uses: pnpm/action-setup@v4
+      - uses: coverallsapp/github-action@v2
       - run: pnpm install
       - run: pnpm vitest --coverage
       - uses: davelosert/vitest-coverage-report-action@v2
