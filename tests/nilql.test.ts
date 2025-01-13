@@ -26,7 +26,7 @@ describe("namespace", () => {
 });
 
 /**
- * Precomputed constants that can be reused to reduce running time of tests.
+ * Precomputed constant that can be reused to reduce running time of tests.
  */
 const secretKeyForSumWithOneNode = await nilql.SecretKey.generate(
   { nodes: [{}] },
@@ -167,15 +167,20 @@ describe("errors involving methods of cryptographic key classes", () => {
     try {
       const secretKey = secretKeyForSumWithOneNode;
       const secretKeyObject = secretKey.dump() as {
-        material: { pub?: object; mu: object; lam: object };
+        material: {
+          l: object;
+          m: object;
+          n?: object;
+          g: object;
+        };
         cluster: object;
         operations: object;
       };
-      secretKeyObject.material.pub = undefined;
+      secretKeyObject.material.n = undefined;
       nilql.SecretKey.load({
         material: {
-          mu: secretKeyObject.material.mu,
-          lam: secretKeyObject.material.lam,
+          m: secretKeyObject.material.m,
+          l: secretKeyObject.material.l,
         },
         cluster: secretKeyObject.cluster,
         operations: secretKeyObject.operations,
@@ -189,11 +194,16 @@ describe("errors involving methods of cryptographic key classes", () => {
     try {
       const secretKey = secretKeyForSumWithOneNode;
       const secretKeyObject = secretKey.dump() as {
-        material: { pub: object; mu: object | number; lam: object };
+        material: {
+          l: object;
+          m: object | number;
+          n: object;
+          g: object;
+        };
         cluster: object;
         operations: object;
       };
-      secretKeyObject.material.mu = 123;
+      secretKeyObject.material.m = 123;
       nilql.SecretKey.load(secretKeyObject);
     } catch (e) {
       expect(e).toStrictEqual(
@@ -205,21 +215,22 @@ describe("errors involving methods of cryptographic key classes", () => {
       const secretKey = secretKeyForSumWithOneNode;
       const secretKeyObject = secretKey.dump() as {
         material: {
-          pub: { n: string | number; g: string };
-          mu: object;
-          lam: object;
+          l: object;
+          m: object;
+          n: string | number;
+          g: object;
         };
         cluster: object;
         operations: object;
       };
-      secretKeyObject.material.pub.n = 123;
+      secretKeyObject.material.n = 123;
       nilql.SecretKey.load(secretKeyObject);
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("invalid object representation of a secret key"),
       );
     }
-  }, 10000);
+  });
 
   test("errors in public key generation", async () => {
     const cluster = { nodes: [{}, {}, {}] };
@@ -287,7 +298,7 @@ describe("errors involving methods of cryptographic key classes", () => {
 });
 
 /**
- * Tests of the functional properties of encryption/decryption functions.
+ * Tests of the functional and algebraic properties of encryption/decryption functions.
  */
 describe("encryption and decryption functions", () => {
   const clusters = [{ nodes: [{}] }, { nodes: [{}, {}, {}] }];
@@ -459,14 +470,21 @@ describe("errors involving encryption and decryption functions", () => {
   test("errors in encryption for store operation", async () => {
     const cluster = { nodes: [{}] };
     const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
-    const plaintext = "x".repeat(4097);
 
     try {
-      await nilql.encrypt(secretKey, plaintext);
+      await nilql.encrypt(secretKey, 2 ** 31 + 1);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        TypeError("numeric plaintext must be a valid 32-bit signed integer"),
+      );
+    }
+
+    try {
+      await nilql.encrypt(secretKey, "x".repeat(4097));
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "plaintext string must be possible to encode in 4096 bytes or fewer",
+          "string plaintext must be possible to encode in 4096 bytes or fewer",
         ),
       );
     }
@@ -475,14 +493,21 @@ describe("errors involving encryption and decryption functions", () => {
   test("errors in encryption for match operation", async () => {
     const cluster = { nodes: [{}] };
     const secretKey = await nilql.SecretKey.generate(cluster, { match: true });
-    const plaintext = "x".repeat(4097);
 
     try {
-      await nilql.encrypt(secretKey, plaintext);
+      await nilql.encrypt(secretKey, 2 ** 31 + 1);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        TypeError("numeric plaintext must be a valid 32-bit signed integer"),
+      );
+    }
+
+    try {
+      await nilql.encrypt(secretKey, "x".repeat(4097));
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "plaintext string must be possible to encode in 4096 bytes or fewer",
+          "string plaintext must be possible to encode in 4096 bytes or fewer",
         ),
       );
     }
@@ -520,7 +545,7 @@ describe("errors involving encryption and decryption functions", () => {
     }
   });
 
-  test("errors in decryption due to cluster size mismatch", async () => {
+  test("errors in decryption for store operation due to cluster size mismatch", async () => {
     const secretKeyOne = await nilql.SecretKey.generate(
       { nodes: [{}] },
       { store: true },
@@ -568,26 +593,43 @@ describe("errors involving encryption and decryption functions", () => {
     }
   });
 
-  test("errors in decryption for sum operation", async () => {
-    const cluster = { nodes: [{}] };
-    const secretKey = secretKeyForSumWithOneNode;
-    const secretKeyAlt = await nilql.SecretKey.generate(cluster, { sum: true });
-    const publicKey = await nilql.PublicKey.generate(secretKey);
-
-    const plaintextNumber = 123;
-    const ciphertextFromNumber = (await nilql.encrypt(
-      publicKey,
-      plaintextNumber,
-    )) as bigint;
+  test("errors in decryption for store operation due to key mismatch", async () => {
+    const secretKey = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { store: true },
+    );
+    const secretKeyAlt = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { store: true },
+    );
+    const ciphertext = await nilql.encrypt(secretKey, 123);
 
     try {
-      await nilql.decrypt(secretKeyAlt, ciphertextFromNumber);
+      await nilql.decrypt(secretKeyAlt, ciphertext);
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("ciphertext cannot be decrypted using supplied secret key"),
       );
     }
-  }, 10000);
+  });
+
+  test("errors in decryption for sum operation  due to key mismatch", async () => {
+    const secretKey = secretKeyForSumWithOneNode;
+    const secretKeyAlt = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { sum: true },
+    );
+    const publicKey = await nilql.PublicKey.generate(secretKey);
+    const ciphertext = await nilql.encrypt(publicKey, 123);
+
+    try {
+      await nilql.decrypt(secretKeyAlt, ciphertext);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        TypeError("ciphertext cannot be decrypted using supplied secret key"),
+      );
+    }
+  });
 });
 
 /**
@@ -641,7 +683,7 @@ describe("end-to-end workflows", () => {
         const ciphertext = await nilql.encrypt(secretKey, number);
         const decrypted = await nilql.decrypt(secretKey, ciphertext);
         expect(BigInt(number)).toEqual(BigInt(decrypted));
-      }, 10000);
+      });
     }
   }
 

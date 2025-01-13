@@ -119,25 +119,22 @@ class SecretKey {
       operations: this.operations,
     };
 
-    if (this.material instanceof Uint8Array) {
+    if (Object.keys(this.material).length === 0) {
+      // There is no key material for clusters with multiple nodes.
+    } else if (this.material instanceof Uint8Array) {
       object.material = _pack(this.material);
-    } else if (
-      "publicKey" in this.material &&
-      "lambda" in this.material &&
-      "mu" in this.material
-    ) {
+    } else {
+      // Secret key for Paillier encryption.
       const privateKey = this.material as {
         publicKey: { n: bigint; g: bigint };
         lambda: bigint;
         mu: bigint;
       };
       object.material = {
-        pub: {
-          n: privateKey.publicKey.n.toString(),
-          g: privateKey.publicKey.g.toString(),
-        },
-        lam: privateKey.lambda.toString(),
-        mu: privateKey.mu.toString(),
+        n: privateKey.publicKey.n.toString(),
+        g: privateKey.publicKey.g.toString(),
+        l: privateKey.lambda.toString(),
+        m: privateKey.mu.toString(),
       };
     }
 
@@ -170,33 +167,35 @@ class SecretKey {
     } else if (typeof material === "string") {
       secretKey.material = _unpack(material);
     } else {
-      if (!("lam" in material && "mu" in material && "pub" in material)) {
-        throw errorInvalid;
-      }
-
-      const pub = material.pub as object;
-
+      // Secret key for Paillier encryption.
       if (
         !(
-          typeof material.lam === "string" &&
-          typeof material.mu === "string" &&
-          "n" in pub &&
-          "g" in pub
+          "l" in material &&
+          "m" in material &&
+          "n" in material &&
+          "g" in material
         )
       ) {
         throw errorInvalid;
       }
 
-      if (!(typeof pub.n === "string" && typeof pub.g === "string")) {
+      if (
+        !(
+          typeof material.l === "string" &&
+          typeof material.m === "string" &&
+          typeof material.n === "string" &&
+          typeof material.g === "string"
+        )
+      ) {
         throw errorInvalid;
       }
 
       secretKey.material = new paillierBigint.PrivateKey(
-        BigInt(material.lam as string),
-        BigInt(material.mu as string),
+        BigInt(material.l as string),
+        BigInt(material.m as string),
         new paillierBigint.PublicKey(
-          BigInt(pub.n as string),
-          BigInt(pub.g as string),
+          BigInt(material.n as string),
+          BigInt(material.g as string),
         ),
       );
     }
@@ -246,6 +245,7 @@ class PublicKey {
     };
 
     if ("n" in this.material && "g" in this.material) {
+      // Public key for Paillier encryption.
       const publicKey = this.material as paillierBigint.PublicKey;
       object.material = {
         n: publicKey.n.toString(),
@@ -429,7 +429,7 @@ async function encrypt(
 
     if (bytes.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX) {
       throw new TypeError(
-        "plaintext string must be possible to encode in 4096 bytes or fewer",
+        "string plaintext must be possible to encode in 4096 bytes or fewer",
       );
     }
   }
@@ -603,12 +603,19 @@ async function decrypt(
       const bytes = _unpack(ciphertext as string);
       const nonce = bytes.subarray(0, sodium.crypto_secretbox_NONCEBYTES);
       const cipher = bytes.subarray(sodium.crypto_secretbox_NONCEBYTES);
-      const plain = sodium.crypto_secretbox_open_easy(
-        cipher,
-        nonce,
-        symmetricKey,
-      );
-      instance = _decode(plain);
+
+      try {
+        const plain = sodium.crypto_secretbox_open_easy(
+          cipher,
+          nonce,
+          symmetricKey,
+        );
+        instance = _decode(plain);
+      } catch (error) {
+        throw new TypeError(
+          "ciphertext cannot be decrypted using supplied secret key",
+        );
+      }
     } else {
       // Multi-node clusters use XOR-based secret sharing.
       const shares = (ciphertext as string[]).map(_unpack);
