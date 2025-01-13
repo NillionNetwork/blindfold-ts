@@ -26,9 +26,10 @@ jobs:
       - name: Prepare tools
         uses: pnpm/action-setup@v4
       - name: Run linting and type checking
-        run: pnpm install
-        run: pnpm biome ci
-        run: pnpm typecheck
+        run: |
+          pnpm install
+          pnpm biome ci
+          pnpm typecheck
 
   test:
     name: Test and report coverage
@@ -43,8 +44,9 @@ jobs:
       - name: Prepare tools
         uses: pnpm/action-setup@v4
       - name: Run tests
-        run: pnpm install
-        run: pnpm vitest --coverage
+        run: |
+          pnpm install
+          pnpm vitest --coverage
       - name: Report coverage
         uses: davelosert/vitest-coverage-report-action@v2
         if: always()
