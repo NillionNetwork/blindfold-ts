@@ -47,7 +47,7 @@ jobs:
         run: |
           pnpm install
           pnpm install coveralls
-          pnpm vitest --coverage
+          pnpm vitest --run --coverage
       - name: Report coverage
         uses: davelosert/vitest-coverage-report-action@v2
         if: always()
@@ -55,3 +55,5 @@ jobs:
           comment-on: "pr"
       - name: Report coverage to Coveralls
         uses: coverallsapp/github-action@v2
+        with:
+          path-to-lcov: ./coverage/lcov.info

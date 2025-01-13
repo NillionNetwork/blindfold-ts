@@ -5,7 +5,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [tsconfigPaths()],
   test: {
     coverage: {
-      reporter: ["text", "json-summary", "json"],
+      reporter: ["text", "json-summary", "json", "lcov"],
       reportOnFailure: true,
     },
   },
