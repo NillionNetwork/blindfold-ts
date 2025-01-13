@@ -19,13 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Prepare environment
+        uses: actions/setup-node@v4
         with:
           node-version: "23"
-      - uses: pnpm/action-setup@v4
-      - run: pnpm install
-      - run: pnpm biome ci
-      - run: pnpm typecheck
+      - name: Prepare tools
+        uses: pnpm/action-setup@v4
+        run: pnpm install
+      - name: Run linting and type checking
+        run: pnpm biome ci
+        run: pnpm typecheck
 
   test:
     name: Test and report coverage
@@ -33,14 +36,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Prepare environment
+        uses: actions/setup-node@v4
         with:
           node-version: "23"
-      - uses: pnpm/action-setup@v4
-      - uses: coverallsapp/github-action@v2
-      - run: pnpm install
-      - run: pnpm vitest --coverage
-      - uses: davelosert/vitest-coverage-report-action@v2
+      - name: Prepare tools
+        uses: pnpm/action-setup@v4
+        run: pnpm install
+      - name: Run tests
+        run: pnpm vitest --coverage
+      - name: Report coverage
+        uses: davelosert/vitest-coverage-report-action@v2
         if: always()
         with:
           comment-on: "pr"
+        uses: coverallsapp/github-action@v2
