@@ -5,6 +5,15 @@ import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
 /**
+ * Helper function to compare two arrays of object keys (i.e., strings).
+ */
+function equalKeys(a: Array<string>, b: Array<string>) {
+  const zip = (a: Array<string>, b: Array<string>) =>
+    a.map((k, i) => [k, b[i]]);
+  return zip(a, b).every((pair) => pair[0] === pair[1]);
+}
+
+/**
  * Minimum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MIN = BigInt(-2147483648);
@@ -662,6 +671,158 @@ async function decrypt(
 }
 
 /**
+ * Convert an object that may contain ciphertexts intended for multi-node
+ * clusters into secret shares of that object. Shallow copies are created
+ * whenever possible.
+ */
+function allot(object: object): object[] {
+  if (
+    typeof object === "string" ||
+    typeof object === "number" ||
+    typeof object === "boolean"
+  ) {
+    return [object];
+  }
+
+  if (Array.isArray(object)) {
+    const results = (object as Array<object>).map(allot);
+
+    // Determine the number of shares that must be created.
+    let multiplicity = 1;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.length !== 1) {
+        if (multiplicity === 1) {
+          multiplicity = result.length;
+        } else if (multiplicity !== result.length) {
+          throw new TypeError("number of shares is not consistent");
+        }
+      }
+    }
+
+    // Create the appropriate number of shares.
+    const shares = [];
+    for (let i = 0; i < multiplicity; i++) {
+      const share = [];
+      for (let j = 0; j < results.length; j++) {
+        share.push(results[j][results[j].length === 1 ? 0 : i]);
+      }
+      shares.push(share);
+    }
+
+    return shares;
+  }
+
+  if (object instanceof Object) {
+    // Base case: an array of shares that must be allotted to nodes.
+    if ("$allot" in object) {
+      const items = object.$allot as Array<object>;
+      const shares = [];
+      for (let i = 0; i < items.length; i++) {
+        shares.push({ $share: items[i] });
+      }
+      return shares;
+    }
+
+    // Object is a general-purpose key-value mapping.
+    const existing = object as { [k: string]: object };
+    const results: { [k: string]: object } = {};
+    let multiplicity = 1;
+    for (const key in existing) {
+      const result = allot(existing[key]);
+      results[key] = result;
+      if (result.length !== 1) {
+        if (multiplicity === 1) {
+          multiplicity = result.length;
+        } else if (multiplicity !== result.length) {
+          throw new TypeError("number of shares is not consistent");
+        }
+      }
+    }
+
+    // Create the appropriate number of shares.
+    const shares = [];
+    for (let i = 0; i < multiplicity; i++) {
+      const share: { [k: string]: object } = {};
+      for (const key in results) {
+        const resultsForKey = results[key] as Array<object>;
+        share[key] = resultsForKey[resultsForKey.length === 1 ? 0 : i];
+      }
+      shares.push(share);
+    }
+
+    return shares;
+  }
+
+  throw new TypeError("number, string, array, or object expected");
+}
+
+/**
+ * Convert an array of compatible secret share objects into a single object
+ * that deduplicates matching plaintext leaf values and recombines matching
+ * secret share leaf values.
+ */
+async function unify(
+  secretKey: SecretKey,
+  objects: object[],
+): Promise<object | Array<object>> {
+  if (objects.length === 1) {
+    return objects[0];
+  }
+
+  if (objects.every((object) => Array.isArray(object))) {
+    const length = objects[0].length;
+    if (objects.every((object) => object.length === length)) {
+      const results = [];
+      for (let i = 0; i < length; i++) {
+        const result = await unify(
+          secretKey,
+          objects.map((object) => object[i]),
+        );
+        results.push(result);
+      }
+      return results;
+    }
+  }
+
+  if (objects.every((object) => object instanceof Object)) {
+    // Objects are shares.
+    if (objects.every((object) => "$share" in object)) {
+      const shares = objects.map((object) => object.$share);
+      const decrypted = decrypt(secretKey, shares as string[] | number[]);
+      return decrypted as object;
+    }
+
+    // Objects are general-purpose key-value mappings.
+    const keys: Array<string> = Object.keys(objects[0]);
+    const zip = (a: Array<string>, b: Array<string>) =>
+      a.map((k, i) => [k, b[i]]);
+    if (objects.every((object) => equalKeys(keys, Object.keys(object)))) {
+      const results: { [k: string]: object } = {};
+      for (const key in objects[0]) {
+        const result = await unify(
+          secretKey,
+          objects.map((object) => (object as { [k: string]: object })[key]),
+        );
+        results[key] = result;
+      }
+      return results;
+    }
+  }
+
+  // Base case: all objects must be equivalent.
+  let allValuesEqual = true;
+  for (let i = 1; i < objects.length; i++) {
+    allValuesEqual &&= objects[0] === objects[i];
+  }
+  if (allValuesEqual) {
+    return objects[0];
+  }
+
+  throw new TypeError("array of compatible share objects expected");
+}
+
+/**
  * Export library wrapper.
  */
 export const nilql = {
@@ -669,4 +830,6 @@ export const nilql = {
   PublicKey,
   encrypt,
   decrypt,
+  allot,
+  unify,
 } as const;

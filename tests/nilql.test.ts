@@ -8,10 +8,29 @@ import { describe, expect, test } from "vitest";
 import { nilql } from "#/nilql";
 
 /**
+ * Helper function for converting an object that may contain `bigint` values
+ * to JSON.
+ */
+function toJSON(o: object) {
+  return JSON.stringify(o, (_, v) =>
+    typeof v === "bigint" ? v.toString() : v,
+  );
+}
+
+/**
+ * Helper function to compare two arrays of object keys (i.e., strings).
+ */
+function equalKeys(a: Array<string>, b: Array<string>) {
+  const zip = (a: Array<string>, b: Array<string>) =>
+    a.map((k, i) => [k, b[i]]);
+  return zip(a, b).every((pair) => pair[0] === pair[1]);
+}
+
+/**
  * API symbols that should be available to users upon module import.
  */
 function apiNilql() {
-  return ["SecretKey", "PublicKey", "encrypt", "decrypt"];
+  return ["SecretKey", "PublicKey", "encrypt", "decrypt", "allot", "unify"];
 }
 
 /**
@@ -633,7 +652,7 @@ describe("errors involving encryption and decryption functions", () => {
 });
 
 /**
- * Tests involving end-to-end workflows.
+ * Tests involving end-to-end encryption-decryption workflows.
  */
 describe("end-to-end workflows", () => {
   const clusters = [{ nodes: [{}] }, { nodes: [{}, {}, {}, {}, {}] }];
@@ -696,4 +715,75 @@ describe("end-to-end workflows", () => {
       expect(BigInt(number)).toEqual(BigInt(decrypted));
     });
   }
+});
+
+/**
+ * Tests involving end-to-end encryption-decryption workflows.
+ */
+describe("end-to-end workflows involving share allotment and unification", () => {
+  const cluster = { nodes: [{}, {}, {}] };
+
+  test("allotment and unification of arrays for a multi-node cluster", async () => {
+    const data = [12n, 34n, 56n, 78n, 90n];
+    const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
+    const encrypted = [];
+    for (let i = 0; i < data.length; i++) {
+      encrypted.push({ $allot: await nilql.encrypt(secretKey, data[i]) });
+    }
+    const shares = nilql.allot(encrypted) as Array<Array<object>>;
+    expect(shares.length).toEqual(3);
+    expect(shares.every((share) => share.length === data.length)).toEqual(true);
+
+    const decrypted = await nilql.unify(secretKey, shares);
+    expect(data).toEqual(decrypted);
+  });
+
+  test("allotment and unification of simple objects for a multi-node cluster", async () => {
+    const data: { [k: string]: bigint } = {
+      a: 12n,
+      b: 34n,
+      c: 56n,
+      d: 78n,
+      e: 90n,
+    };
+    const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
+    const encrypted: { [k: string]: object } = {};
+    for (const key in data) {
+      encrypted[key] = { $allot: await nilql.encrypt(secretKey, data[key]) };
+    }
+    const shares = nilql.allot(encrypted) as Array<Array<object>>;
+    expect(shares.length).toEqual(3);
+
+    const keys = Object.keys(data);
+    expect(
+      shares.every((share) => equalKeys(Object.keys(share), keys)),
+    ).toEqual(true);
+
+    const decrypted = await nilql.unify(secretKey, shares);
+    expect(data).toEqual(decrypted);
+  });
+
+  test("allotment and unification of mixed objects for a multi-node cluster", async () => {
+    const data: { [k: string]: [boolean, string, bigint] } = {
+      a: [true, "v", 12n],
+      b: [false, "w", 34n],
+      c: [true, "x", 56n],
+      d: [false, "y", 78n],
+      e: [true, "z", 90n],
+    };
+    const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
+    const encrypted: { [k: string]: object } = {};
+    for (const key in data) {
+      encrypted[key] = [
+        data[key][0],
+        data[key][1],
+        { $allot: await nilql.encrypt(secretKey, data[key][2]) },
+      ];
+    }
+    const shares = nilql.allot(encrypted) as Array<Array<object>>;
+    expect(shares.length).toEqual(3);
+
+    const decrypted = await nilql.unify(secretKey, shares);
+    expect(toJSON(data)).toEqual(toJSON(decrypted));
+  });
 });
