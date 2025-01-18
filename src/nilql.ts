@@ -675,17 +675,17 @@ async function decrypt(
  * clusters into secret shares of that object. Shallow copies are created
  * whenever possible.
  */
-function allot(object: object): object[] {
+function allot(document: object): object[] {
   if (
-    typeof object === "string" ||
-    typeof object === "number" ||
-    typeof object === "boolean"
+    typeof document === "number" ||
+    typeof document === "boolean" ||
+    typeof document === "string"
   ) {
-    return [object];
+    return [document];
   }
 
-  if (Array.isArray(object)) {
-    const results = (object as Array<object>).map(allot);
+  if (Array.isArray(document)) {
+    const results = (document as Array<object>).map(allot);
 
     // Determine the number of shares that must be created.
     let multiplicity = 1;
@@ -695,7 +695,9 @@ function allot(object: object): object[] {
         if (multiplicity === 1) {
           multiplicity = result.length;
         } else if (multiplicity !== result.length) {
-          throw new TypeError("number of shares is not consistent");
+          throw new TypeError(
+            "number of shares in subdocument is not consistent",
+          );
         }
       }
     }
@@ -713,10 +715,14 @@ function allot(object: object): object[] {
     return shares;
   }
 
-  if (object instanceof Object) {
-    // Base case: an array of shares that must be allotted to nodes.
-    if ("$allot" in object) {
-      const items = object.$allot as Array<object>;
+  if (document instanceof Object) {
+    // Document is an array of shares obtained from the `encrypt` function
+    // that must be allotted to nodes.
+    if ("$allot" in document) {
+      if (Object.keys(document).length !== 1) {
+        throw new TypeError("allotment object must only have one key");
+      }
+      const items = document.$allot as Array<object>;
       const shares = [];
       for (let i = 0; i < items.length; i++) {
         shares.push({ $share: items[i] });
@@ -724,8 +730,8 @@ function allot(object: object): object[] {
       return shares;
     }
 
-    // Object is a general-purpose key-value mapping.
-    const existing = object as { [k: string]: object };
+    // Document is a general-purpose key-value mapping.
+    const existing = document as { [k: string]: object };
     const results: { [k: string]: object } = {};
     let multiplicity = 1;
     for (const key in existing) {
@@ -735,12 +741,14 @@ function allot(object: object): object[] {
         if (multiplicity === 1) {
           multiplicity = result.length;
         } else if (multiplicity !== result.length) {
-          throw new TypeError("number of shares is not consistent");
+          throw new TypeError(
+            "number of shares in subdocument is not consistent",
+          );
         }
       }
     }
 
-    // Create the appropriate number of shares.
+    // Create the appropriate number of document shares.
     const shares = [];
     for (let i = 0; i < multiplicity; i++) {
       const share: { [k: string]: object } = {};
@@ -754,7 +762,7 @@ function allot(object: object): object[] {
     return shares;
   }
 
-  throw new TypeError("number, string, array, or object expected");
+  throw new TypeError("number, boolean, string, array, or object expected");
 }
 
 /**
@@ -764,20 +772,20 @@ function allot(object: object): object[] {
  */
 async function unify(
   secretKey: SecretKey,
-  objects: object[],
+  documents: object[],
 ): Promise<object | Array<object>> {
-  if (objects.length === 1) {
-    return objects[0];
+  if (documents.length === 1) {
+    return documents[0];
   }
 
-  if (objects.every((object) => Array.isArray(object))) {
-    const length = objects[0].length;
-    if (objects.every((object) => object.length === length)) {
+  if (documents.every((document) => Array.isArray(document))) {
+    const length = documents[0].length;
+    if (documents.every((document) => document.length === length)) {
       const results = [];
       for (let i = 0; i < length; i++) {
         const result = await unify(
           secretKey,
-          objects.map((object) => object[i]),
+          documents.map((document) => document[i]),
         );
         results.push(result);
       }
@@ -785,24 +793,26 @@ async function unify(
     }
   }
 
-  if (objects.every((object) => object instanceof Object)) {
-    // Objects are shares.
-    if (objects.every((object) => "$share" in object)) {
-      const shares = objects.map((object) => object.$share);
+  if (documents.every((document) => document instanceof Object)) {
+    // Documents are shares.
+    if (documents.every((document) => "$share" in document)) {
+      const shares = documents.map((document) => document.$share);
       const decrypted = decrypt(secretKey, shares as string[] | number[]);
       return decrypted as object;
     }
 
-    // Objects are general-purpose key-value mappings.
-    const keys: Array<string> = Object.keys(objects[0]);
+    // Documents are general-purpose key-value mappings.
+    const keys: Array<string> = Object.keys(documents[0]);
     const zip = (a: Array<string>, b: Array<string>) =>
       a.map((k, i) => [k, b[i]]);
-    if (objects.every((object) => equalKeys(keys, Object.keys(object)))) {
+    if (documents.every((document) => equalKeys(keys, Object.keys(document)))) {
       const results: { [k: string]: object } = {};
-      for (const key in objects[0]) {
+      for (const key in documents[0]) {
         const result = await unify(
           secretKey,
-          objects.map((object) => (object as { [k: string]: object })[key]),
+          documents.map(
+            (document) => (document as { [k: string]: object })[key],
+          ),
         );
         results[key] = result;
       }
@@ -810,16 +820,16 @@ async function unify(
     }
   }
 
-  // Base case: all objects must be equivalent.
+  // Base case: all documents must be equivalent.
   let allValuesEqual = true;
-  for (let i = 1; i < objects.length; i++) {
-    allValuesEqual &&= objects[0] === objects[i];
+  for (let i = 1; i < documents.length; i++) {
+    allValuesEqual &&= documents[0] === documents[i];
   }
   if (allValuesEqual) {
-    return objects[0];
+    return documents[0];
   }
 
-  throw new TypeError("array of compatible share objects expected");
+  throw new TypeError("array of compatible document shares expected");
 }
 
 /**
