@@ -5,7 +5,7 @@ import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
 /**
- * Helper function to compare two arrays of object keys (i.e., strings).
+ * Helper function to compare two arrays of strings.
  */
 function equalKeys(a: Array<string>, b: Array<string>) {
   const zip = (a: Array<string>, b: Array<string>) =>
@@ -718,16 +718,40 @@ function allot(document: object): object[] {
   }
 
   if (document instanceof Object) {
-    // Document is an array of shares obtained from the `encrypt` function
+    // Document contains shares obtained from the `encrypt` function
     // that must be allotted to nodes.
     if ("$allot" in document) {
       if (Object.keys(document).length !== 1) {
-        throw new TypeError("allotment object must only have one key");
+        throw new TypeError("allotment must only have one key");
       }
+
       const items = document.$allot as Array<object>;
+      if (
+        items.every((item) => typeof item === "number") ||
+        items.every((item) => typeof item === "string")
+      ) {
+        // Simple allotment.
+        const shares = [];
+        for (let i = 0; i < items.length; i++) {
+          shares.push({ $share: items[i] });
+        }
+        return shares;
+      }
+
+      // More complex allotment with nested lists of shares.
+      const sharesArrays = allot(
+        items.map((item) => {
+          return { $allot: item };
+        }),
+      );
       const shares = [];
-      for (let i = 0; i < items.length; i++) {
-        shares.push({ $share: items[i] });
+      for (let i = 0; i < sharesArrays.length; i++) {
+        const sharesCurrent: Array<object> = sharesArrays[i] as Array<object>;
+        shares.push({
+          $share: sharesCurrent.map(
+            (share) => (share as { $share: object }).$share,
+          ),
+        });
       }
       return shares;
     }
@@ -750,7 +774,7 @@ function allot(document: object): object[] {
       }
     }
 
-    // Create the appropriate number of document shares.
+    // Create and return the appropriate number of document shares.
     const shares = [];
     for (let i = 0; i < multiplicity; i++) {
       const share: { [k: string]: object } = {};
@@ -798,9 +822,31 @@ async function unify(
   if (documents.every((document) => document instanceof Object)) {
     // Documents are shares.
     if (documents.every((document) => "$share" in document)) {
-      const shares = documents.map((document) => document.$share);
-      const decrypted = decrypt(secretKey, shares as string[] | number[]);
-      return decrypted as object;
+      // Simple document shares.
+      if (
+        documents.every((document) => typeof document.$share === "number") ||
+        documents.every((document) => typeof document.$share === "string")
+      ) {
+        const shares = documents.map((document) => document.$share);
+        const decrypted = decrypt(secretKey, shares as string[] | number[]);
+        return decrypted as object;
+      }
+
+      // Document shares consisting of nested lists of shares.
+      const unwrapped: Array<Array<object>> = [];
+      for (let i = 0; i < documents.length; i++) {
+        unwrapped.push(documents[i].$share as Array<object>);
+      }
+      const length = unwrapped[0].length;
+      const results = [];
+      for (let i = 0; i < length; i++) {
+        const shares = [];
+        for (let j = 0; j < documents.length; j++) {
+          shares.push({ $share: unwrapped[j][i] });
+        }
+        results.push(await unify(secretKey, shares));
+      }
+      return results;
     }
 
     // Documents are general-purpose key-value mappings.

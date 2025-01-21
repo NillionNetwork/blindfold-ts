@@ -786,4 +786,35 @@ describe("end-to-end workflows involving share allotment and unification", () =>
     const decrypted = await nilql.unify(secretKey, shares);
     expect(toJSON(data)).toEqual(toJSON(decrypted));
   });
+
+  test("allotment and unification of objects with nested arrays of shares for a multi-node cluster", async () => {
+    const data: { [k: string]: object } = {
+      a: [1n, [2n, 3n]],
+      b: [4n, [5n, 6n]],
+    };
+    const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
+    const encrypted: { [k: string]: object } = {};
+    for (const key in data) {
+      encrypted[key] = {
+        $allot: [
+          await nilql.encrypt(secretKey, (data[key] as Array<bigint>)[0]),
+          [
+            await nilql.encrypt(
+              secretKey,
+              (data[key] as Array<Array<bigint>>)[1][0],
+            ),
+            await nilql.encrypt(
+              secretKey,
+              (data[key] as Array<Array<bigint>>)[1][1],
+            ),
+          ],
+        ],
+      };
+    }
+    const shares = nilql.allot(encrypted) as Array<Array<object>>;
+    expect(shares.length).toEqual(3);
+
+    const decrypted = await nilql.unify(secretKey, shares);
+    expect(toJSON(data)).toEqual(toJSON(decrypted));
+  });
 });
