@@ -410,7 +410,7 @@ async function secretKey(
 async function encrypt(
   key: PublicKey | SecretKey,
   plaintext: number | bigint | string,
-): Promise<bigint | string | number[] | string[]> {
+): Promise<string | string[] | number[]> {
   await sodium.ready;
 
   // The values below may be used (depending on the plaintext type and the specific
@@ -444,7 +444,7 @@ async function encrypt(
   }
 
   // Ciphertext object to be returned from this invocation.
-  let instance: bigint | string | number[] | string[];
+  let instance: string | string[] | number[];
 
   // Encrypt a value for storage and retrieval.
   if (key.operations.store) {
@@ -541,9 +541,9 @@ async function encrypt(
         paillierPublicKey.n,
         paillierPublicKey.g,
       );
-      instance = paillierPublicKey.encrypt(
-        bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN,
-      );
+      instance = paillierPublicKey
+        .encrypt(bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN)
+        .toString(16);
     } else {
       // Use additive secret sharing for multi-node clusters.
       const shares: bigint[] = [];
@@ -570,7 +570,7 @@ async function encrypt(
  */
 async function decrypt(
   secretKey: SecretKey,
-  ciphertext: bigint | number[] | string | string[],
+  ciphertext: string | string[] | number[],
 ): Promise<bigint | string> {
   await sodium.ready;
 
@@ -645,7 +645,9 @@ async function decrypt(
       // Single-node clusters use Paillier ciphertexts.
       const paillierPrivateKey =
         secretKey.material as paillierBigint.PrivateKey;
-      instance = paillierPrivateKey.decrypt(ciphertext as bigint);
+      instance = paillierPrivateKey.decrypt(
+        BigInt(`0x${ciphertext as string}`),
+      );
       instance += _PLAINTEXT_SIGNED_INTEGER_MIN;
     } else {
       // Multi-node clusters use additive secret sharing.
