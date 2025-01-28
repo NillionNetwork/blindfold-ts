@@ -103,20 +103,13 @@ class SecretKey {
     }
 
     if (this.operations.sum) {
+      // For single-node clusters, initialization must occur within `generate`.
       if (this.cluster.nodes.length > 1) {
-        this.material = 0;
-        while (
-          this.material === 0 ||
-          this.material >= _SECRET_SHARED_SIGNED_INTEGER_MODULUS
-        ) {
-          const buffer = Buffer.alloc(4);
-          crypto.getRandomValues(buffer);
-          this.material = Number(buffer.readUInt32BE(0));
-        }
+        this.material = Number(
+          _randomInteger(1n, _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n),
+        );
       }
     }
-
-    // For the sum operation, initialization must occur within `generate`.
   }
 
   /**
@@ -359,6 +352,37 @@ class PublicKey {
 
     return publicKey;
   }
+}
+
+/**
+ * Generate random integer (via rejection sampling) for use as a secret share or mask.
+ */
+function _randomInteger(minimum: bigint, maximum: bigint): bigint {
+  if (minimum < 0 || minimum > 1) {
+    throw new RangeError("minimum must be 0 or 1");
+  }
+
+  if (maximum <= minimum || maximum >= _SECRET_SHARED_SIGNED_INTEGER_MODULUS) {
+    throw new RangeError(
+      "maximum must be greater than the minimum and less than the modulus",
+    );
+  }
+
+  const range = maximum - minimum;
+  let integer = null;
+  while (integer === null || integer > range) {
+    const uint8Array = sodium.randombytes_buf(8);
+    uint8Array[4] &= 0b00000001;
+    uint8Array[5] &= 0b00000000;
+    uint8Array[6] &= 0b00000000;
+    uint8Array[7] &= 0b00000000;
+    const buffer = Buffer.from(uint8Array);
+    const small = BigInt(buffer.readUInt32LE(0));
+    const large = BigInt(buffer.readUInt32LE(4));
+    integer = small + large * 2n ** 32n;
+  }
+
+  return minimum + integer;
 }
 
 /**
@@ -632,9 +656,10 @@ async function encrypt(
       const shares: bigint[] = [];
       let total = BigInt(0);
       for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
-        const mask = Buffer.alloc(4);
-        crypto.getRandomValues(mask);
-        const share = BigInt(mask.readUInt32BE(0));
+        const share = _randomInteger(
+          0n,
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
+        );
         shares.push(
           _mod(
             BigInt(secretKey.material as number) * share,
