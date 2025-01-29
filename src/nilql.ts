@@ -5,15 +5,6 @@ import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
 /**
- * Helper function to compare two arrays of strings.
- */
-function equalKeys(a: Array<string>, b: Array<string>) {
-  const zip = (a: Array<string>, b: Array<string>) =>
-    a.map((k, i) => [k, b[i]]);
-  return zip(a, b).every((pair) => pair[0] === pair[1]);
-}
-
-/**
  * Minimum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MIN = BigInt(-2147483648);
@@ -32,6 +23,148 @@ const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = 2n ** 32n + 15n;
  * Maximum length of plaintext string values that can be encrypted.
  */
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
+
+/**
+ * Mathematically standard modulus operator.
+ */
+function _mod(n: bigint, m: bigint): bigint {
+  const num = n < 0 ? n + m : n;
+  return ((num % m) + m) % m;
+}
+
+/**
+ * Modular exponentiation.
+ */
+function _pow(n: bigint, k: bigint, m: bigint): bigint {
+  if (k === 0n) {
+    return 1n;
+  }
+  if (k % 2n === 0n) {
+    return _pow(n, k / 2n, m) ** 2n % m;
+  }
+  return (n * _pow(n, k - 1n, m)) % m;
+}
+
+/**
+ * Componentwise XOR of two buffers.
+ */
+function _xor(a: Buffer, b: Buffer): Buffer {
+  const length = Math.min(a.length, b.length);
+  const r = Buffer.alloc(length);
+  for (let i = 0; i < length; i++) {
+    r[i] = a[i] ^ b[i];
+  }
+  return r;
+}
+
+/**
+ * Concatenate two Uint8Array instances.
+ */
+function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const c = new Uint8Array(a.length + b.length);
+  c.set(a);
+  c.set(b, a.length);
+  return c;
+}
+
+/**
+ * Helper function to compare two arrays of strings.
+ */
+function _equalKeys(a: Array<string>, b: Array<string>) {
+  const zip = (a: Array<string>, b: Array<string>) =>
+    a.map((k, i) => [k, b[i]]);
+  return zip(a, b).every((pair) => pair[0] === pair[1]);
+}
+
+/**
+ * Generate random integer (via rejection sampling) for use as a secret share or mask.
+ */
+function _randomInteger(minimum: bigint, maximum: bigint): bigint {
+  if (minimum < 0 || minimum > 1) {
+    throw new RangeError("minimum must be 0 or 1");
+  }
+
+  if (maximum <= minimum || maximum >= _SECRET_SHARED_SIGNED_INTEGER_MODULUS) {
+    throw new RangeError(
+      "maximum must be greater than the minimum and less than the modulus",
+    );
+  }
+
+  const range = maximum - minimum;
+  let integer = null;
+  while (integer === null || integer > range) {
+    const uint8Array = sodium.randombytes_buf(8);
+    uint8Array[4] &= 0b00000001;
+    uint8Array[5] &= 0b00000000;
+    uint8Array[6] &= 0b00000000;
+    uint8Array[7] &= 0b00000000;
+    const buffer = Buffer.from(uint8Array);
+    const small = BigInt(buffer.readUInt32LE(0));
+    const large = BigInt(buffer.readUInt32LE(4));
+    integer = small + large * 2n ** 32n;
+  }
+
+  return minimum + integer;
+}
+
+/**
+ * Return a SHA-512 hash of the supplied string.
+ */
+async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
+  const buffer = await crypto.subtle.digest("SHA-512", bytes);
+  return new Uint8Array(buffer);
+}
+
+/**
+ * Encode a bytes-like object as a Base64 string (for compatibility with JSON).
+ */
+function _pack(b: Uint8Array): string {
+  return Buffer.from(b).toString("base64");
+}
+
+/**
+ * Decode a bytes-like object from its Base64 string encoding.
+ */
+function _unpack(s: string): Uint8Array {
+  return new Uint8Array(Buffer.from(s, "base64"));
+}
+
+/**
+ * Encode a numeric value or string as a byte array. The encoding includes
+ * information about the type of the value (to enable decoding without any
+ * additional context).
+ */
+function _encode(value: bigint | string): Uint8Array {
+  let bytes: Uint8Array;
+
+  // Encode signed big integer.
+  if (typeof value === "bigint") {
+    const buffer = Buffer.alloc(9);
+    buffer[0] = 0; // First byte indicates encoded value is a 32-bit signed integer.
+    buffer.writeBigInt64LE(value, 1);
+    bytes = new Uint8Array(buffer);
+  } else {
+    bytes = new TextEncoder().encode(value);
+    const byte = new Uint8Array(1);
+    byte[0] = 1; // First byte indicates encoded value is a UTF-8 string.
+    bytes = _concat(byte, bytes);
+  }
+
+  return bytes;
+}
+
+/**
+ * Decode a byte array back into a numeric value or string.
+ */
+function _decode(bytes: Uint8Array): bigint | string {
+  if (bytes[0] === 0) {
+    // Indicates encoded value is a 32-bit signed integer.
+    return Buffer.from(bytes).readBigInt64LE(1);
+  }
+  // Indicates encoded value is a UTF-8 string.
+  const decoder = new TextDecoder("utf-8");
+  return decoder.decode(Buffer.from(bytes.subarray(1)));
+}
 
 /**
  * Cluster configuration information.
@@ -352,139 +485,6 @@ class PublicKey {
 
     return publicKey;
   }
-}
-
-/**
- * Generate random integer (via rejection sampling) for use as a secret share or mask.
- */
-function _randomInteger(minimum: bigint, maximum: bigint): bigint {
-  if (minimum < 0 || minimum > 1) {
-    throw new RangeError("minimum must be 0 or 1");
-  }
-
-  if (maximum <= minimum || maximum >= _SECRET_SHARED_SIGNED_INTEGER_MODULUS) {
-    throw new RangeError(
-      "maximum must be greater than the minimum and less than the modulus",
-    );
-  }
-
-  const range = maximum - minimum;
-  let integer = null;
-  while (integer === null || integer > range) {
-    const uint8Array = sodium.randombytes_buf(8);
-    uint8Array[4] &= 0b00000001;
-    uint8Array[5] &= 0b00000000;
-    uint8Array[6] &= 0b00000000;
-    uint8Array[7] &= 0b00000000;
-    const buffer = Buffer.from(uint8Array);
-    const small = BigInt(buffer.readUInt32LE(0));
-    const large = BigInt(buffer.readUInt32LE(4));
-    integer = small + large * 2n ** 32n;
-  }
-
-  return minimum + integer;
-}
-
-/**
- * Concatenate two Uint8Array instances.
- */
-function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const c = new Uint8Array(a.length + b.length);
-  c.set(a);
-  c.set(b, a.length);
-  return c;
-}
-
-/**
- * Mathematically standard modulus operator.
- */
-function _mod(n: bigint, m: bigint): bigint {
-  const num = n < 0 ? n + m : n;
-  return ((num % m) + m) % m;
-}
-
-/**
- * Modular exponentiation.
- */
-function _pow(n: bigint, k: bigint, m: bigint): bigint {
-  if (k === 0n) {
-    return 1n;
-  }
-  if (k % 2n === 0n) {
-    return _pow(n, k / 2n, m) ** 2n % m;
-  }
-  return (n * _pow(n, k - 1n, m)) % m;
-}
-
-/**
- * Componentwise XOR of two buffers.
- */
-function _xor(a: Buffer, b: Buffer): Buffer {
-  const length = Math.min(a.length, b.length);
-  const r = Buffer.alloc(length);
-  for (let i = 0; i < length; i++) {
-    r[i] = a[i] ^ b[i];
-  }
-  return r;
-}
-
-/**
- * Return a SHA-512 hash of the supplied string.
- */
-async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
-  const buffer = await crypto.subtle.digest("SHA-512", bytes);
-  return new Uint8Array(buffer);
-}
-
-/**
- * Encode a bytes-like object as a Base64 string (for compatibility with JSON).
- */
-function _pack(b: Uint8Array): string {
-  return Buffer.from(b).toString("base64");
-}
-
-/**
- * Decode a bytes-like object from its Base64 string encoding.
- */
-function _unpack(s: string): Uint8Array {
-  return new Uint8Array(Buffer.from(s, "base64"));
-}
-
-/**
- * Encode a numeric value or string as a byte array. The encoding includes
- * information about the type of the value (to enable decoding without any
- * additional context).
- */
-function _encode(value: bigint | string): Uint8Array {
-  let bytes: Uint8Array;
-
-  // Encode signed big integer.
-  if (typeof value === "bigint") {
-    const buffer = Buffer.alloc(9);
-    buffer[0] = 0; // First byte indicates encoded value is a 32-bit signed integer.
-    buffer.writeBigInt64LE(value, 1);
-    bytes = new Uint8Array(buffer);
-  } else {
-    bytes = new TextEncoder().encode(value);
-    const byte = new Uint8Array(1);
-    byte[0] = 1; // First byte indicates encoded value is a UTF-8 string.
-    bytes = _concat(byte, bytes);
-  }
-
-  return bytes;
-}
-
-/**
- * Decode a byte array back into a numeric value or string.
- */
-function _decode(bytes: Uint8Array): bigint | string {
-  if (bytes[0] === 0) {
-    // Indicates encoded value is a 32-bit signed integer.
-    return Buffer.from(bytes).readBigInt64LE(1);
-  }
-  // Indicates encoded value is a UTF-8 string.
-  const decoder = new TextDecoder("utf-8");
-  return decoder.decode(Buffer.from(bytes.subarray(1)));
 }
 
 /**
@@ -981,7 +981,9 @@ async function unify(
     const keys: Array<string> = Object.keys(documents[0]);
     const zip = (a: Array<string>, b: Array<string>) =>
       a.map((k, i) => [k, b[i]]);
-    if (documents.every((document) => equalKeys(keys, Object.keys(document)))) {
+    if (
+      documents.every((document) => _equalKeys(keys, Object.keys(document)))
+    ) {
       const results: { [k: string]: object } = {};
       for (const key in documents[0]) {
         const result = await unify(
