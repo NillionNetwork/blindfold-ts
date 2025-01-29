@@ -63,6 +63,12 @@ Types are checked with:
 pnpm typecheck
 ```
 
+The distribution files are checked with:
+
+```shell
+pnpm exportscheck
+```
+
 ## Contributions
 
 In order to contribute, open an issue or submit a pull request on the GitHub. To enforce conventions, git hooks are provided and can be setup with:
