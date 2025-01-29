@@ -79,7 +79,12 @@ function _equalKeys(a: Array<string>, b: Array<string>) {
 /**
  * Generate random integer (via rejection sampling) for use as a secret share or mask.
  */
-function _randomInteger(minimum: bigint, maximum: bigint): bigint {
+async function _randomInteger(
+  minimum: bigint,
+  maximum: bigint,
+): Promise<bigint> {
+  await sodium.ready;
+
   if (minimum < 0 || minimum > 1) {
     throw new RangeError("minimum must be 0 or 1");
   }
@@ -218,31 +223,6 @@ class SecretKey {
     this.material = {};
     this.cluster = cluster;
     this.operations = operations;
-
-    if (this.operations.store) {
-      if (this.cluster.nodes.length === 1) {
-        this.material = sodium.randombytes_buf(
-          sodium.crypto_secretbox_KEYBYTES,
-        );
-      } else {
-        this.material = sodium.randombytes_buf(
-          _PLAINTEXT_STRING_BUFFER_LEN_MAX,
-        );
-      }
-    }
-
-    if (this.operations.match) {
-      this.material = sodium.randombytes_buf(64); // Salt for hashing.
-    }
-
-    if (this.operations.sum) {
-      // For single-node clusters, initialization must occur within `generate`.
-      if (this.cluster.nodes.length > 1) {
-        this.material = Number(
-          _randomInteger(1n, _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n),
-        );
-      }
-    }
   }
 
   /**
@@ -253,14 +233,35 @@ class SecretKey {
     cluster: Cluster | null,
     operations: Operations | null,
   ): Promise<SecretKey> {
+    await sodium.ready;
+
     const secretKey = new SecretKey(cluster, operations);
-    if (secretKey instanceof SecretKey && secretKey.operations.sum) {
+
+    if (secretKey.operations.store) {
+      if (secretKey.cluster.nodes.length === 1) {
+        secretKey.material = sodium.randombytes_buf(
+          sodium.crypto_secretbox_KEYBYTES,
+        );
+      } else {
+        secretKey.material = sodium.randombytes_buf(
+          _PLAINTEXT_STRING_BUFFER_LEN_MAX,
+        );
+      }
+    }
+
+    if (secretKey.operations.match) {
+      secretKey.material = sodium.randombytes_buf(64); // Salt for hashing.
+    }
+
+    if (secretKey.operations.sum) {
       if (secretKey.cluster.nodes.length === 1) {
         const { privateKey } = await paillierBigint.generateRandomKeys(2048);
         secretKey.material = privateKey;
+      } else {
+        secretKey.material = Number(
+          await _randomInteger(1n, _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n),
+        );
       }
-      // In a multi-node cluster, secret sharing is used (which does not require a
-      // secret key value).
     }
     return secretKey;
   }
@@ -656,7 +657,7 @@ async function encrypt(
       const shares: bigint[] = [];
       let total = BigInt(0);
       for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
-        const share = _randomInteger(
+        const share = await _randomInteger(
           0n,
           _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
         );
