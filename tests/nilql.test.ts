@@ -843,8 +843,18 @@ describe("end-to-end workflows involving share allotment and unification", () =>
         ],
       };
     }
-    const shares = nilql.allot(encrypted) as Array<Array<object>>;
+    const shares = nilql.allot(encrypted) as Array<{
+      [key: string]: string | object;
+    }>;
     expect(shares.length).toEqual(3);
+
+    // Introduce entries that should be ignored.
+    shares[0]._created = "123";
+    shares[1]._created = "456";
+    shares[2]._created = "789";
+    shares[0]._updated = "ABC";
+    shares[1]._updated = "DEF";
+    shares[2]._updated = "GHI";
 
     const decrypted = await nilql.unify(secretKey, shares);
     expect(toJSON(decrypted)).toEqual(toJSON(data));

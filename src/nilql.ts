@@ -858,7 +858,7 @@ function allot(document: object): object[] {
         items.every((item) => typeof item === "number") ||
         items.every((item) => typeof item === "string")
       ) {
-        // Simple allotment.
+        // Simple allotment with a single ciphertext.
         const shares = [];
         for (let i = 0; i < items.length; i++) {
           shares.push({ $share: items[i] });
@@ -866,7 +866,7 @@ function allot(document: object): object[] {
         return shares;
       }
 
-      // More complex allotment with nested lists of shares.
+      // More complex allotment with nested lists of ciphertexts.
       const sharesArrays = allot(
         items.map((item) => {
           return { $allot: item };
@@ -927,6 +927,7 @@ function allot(document: object): object[] {
 async function unify(
   secretKey: SecretKey,
   documents: object[],
+  ignore: string[] = ["_created", "_updated"],
 ): Promise<object | Array<object>> {
   if (documents.length === 1) {
     return documents[0];
@@ -940,6 +941,7 @@ async function unify(
         const result = await unify(
           secretKey,
           documents.map((document) => document[i]),
+          ignore,
         );
         results.push(result);
       }
@@ -972,7 +974,7 @@ async function unify(
         for (let j = 0; j < documents.length; j++) {
           shares.push({ $share: unwrapped[j][i] });
         }
-        results.push(await unify(secretKey, shares));
+        results.push(await unify(secretKey, shares, ignore));
       }
       return results;
     }
@@ -986,13 +988,18 @@ async function unify(
     ) {
       const results: { [k: string]: object } = {};
       for (const key in documents[0]) {
-        const result = await unify(
-          secretKey,
-          documents.map(
-            (document) => (document as { [k: string]: object })[key],
-          ),
-        );
-        results[key] = result;
+        // For ignored keys, unification is not performed and they are
+        // omitted from the results.
+        if (ignore.indexOf(key) === -1) {
+          const result = await unify(
+            secretKey,
+            documents.map(
+              (document) => (document as { [k: string]: object })[key],
+            ),
+            ignore,
+          );
+          results[key] = result;
+        }
       }
       return results;
     }
