@@ -9,14 +9,14 @@ Library for working with encrypted data within nilDB queries and replies.
 
 This library provides cryptographic operations that are compatible with nilDB nodes and clusters, allowing developers to leverage certain privacy-enhancing technologies (PETs) when storing, operating upon, and retrieving data while working with nilDB. The table below summarizes the functionalities available in nilQL.
 
-| Cluster        | Operation  | Implementation Details                          | Supported Types                                   |
-|----------------|------------|-------------------------------------------------|---------------------------------------------------|
-| single node    | store      | XSalsa20 stream cipher and Poly1305 MAC         | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| single node    | match      | deterministic salted hashing via SHA-512        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| single node    | sum        | non-deterministic Paillier with 2048-bit primes | 32-bit signed integer                             |
-| multiple nodes | store      | XOR-based secret sharing                        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| multiple nodes | match      | deterministic salted hashing via SHA-512        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| multiple nodes | sum        | additive secret sharing with modulus 2^32       | 32-bit signed integer                             |
+| Cluster        | Operation  | Implementation Details                            | Supported Types                                   |
+|----------------|------------|---------------------------------------------------|---------------------------------------------------|
+| single node    | store      | XSalsa20 stream cipher and Poly1305 MAC           | 32-bit signed integer; UTF-8 string (<4097 bytes) |
+| single node    | match      | deterministic salted hashing via SHA-512          | 32-bit signed integer; UTF-8 string (<4097 bytes) |
+| single node    | sum        | non-deterministic Paillier with 2048-bit primes   | 32-bit signed integer                             |
+| multiple nodes | store      | XOR-based secret sharing                          | 32-bit signed integer; UTF-8 string (<4097 bytes) |
+| multiple nodes | match      | deterministic salted hashing via SHA-512          | 32-bit signed integer; UTF-8 string (<4097 bytes) |
+| multiple nodes | sum        | additive secret sharing (prime modulus 2^32 + 15) | 32-bit signed integer                             |
 
 ## Package Installation and Usage
 

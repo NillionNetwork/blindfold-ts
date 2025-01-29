@@ -5,15 +5,6 @@ import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
 /**
- * Helper function to compare two arrays of strings.
- */
-function equalKeys(a: Array<string>, b: Array<string>) {
-  const zip = (a: Array<string>, b: Array<string>) =>
-    a.map((k, i) => [k, b[i]]);
-  return zip(a, b).every((pair) => pair[0] === pair[1]);
-}
-
-/**
  * Minimum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MIN = BigInt(-2147483648);
@@ -26,7 +17,7 @@ const _PLAINTEXT_SIGNED_INTEGER_MAX = BigInt(2147483647);
 /**
  * Modulus to use for additive secret sharing of 32-bit signed integers.
  */
-const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = BigInt(4294967296);
+const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = 2n ** 32n + 15n;
 
 /**
  * Maximum length of plaintext string values that can be encrypted.
@@ -34,272 +25,36 @@ const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = BigInt(4294967296);
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
 
 /**
- * Cluster configuration information.
+ * Mathematically standard modulus operator.
  */
-interface Cluster {
-  nodes: object[];
+function _mod(n: bigint, m: bigint): bigint {
+  const num = n < 0 ? n + m : n;
+  return ((num % m) + m) % m;
 }
 
 /**
- * Record indicating what operations on ciphertexts are supported.
+ * Modular exponentiation.
  */
-interface Operations {
-  store?: boolean;
-  match?: boolean;
-  sum?: boolean;
+function _pow(n: bigint, k: bigint, m: bigint): bigint {
+  if (k === 0n) {
+    return 1n;
+  }
+  if (k % 2n === 0n) {
+    return _pow(n, k / 2n, m) ** 2n % m;
+  }
+  return (n * _pow(n, k - 1n, m)) % m;
 }
 
 /**
- * Data structure for representing all categories of secret key.
+ * Componentwise XOR of two buffers.
  */
-class SecretKey {
-  material: object;
-  cluster: Cluster;
-  operations: Operations;
-
-  private constructor(cluster: Cluster | null, operations: Operations | null) {
-    if (cluster === undefined || cluster === null) {
-      throw new TypeError("valid cluster configuration is required");
-    }
-
-    if (cluster.nodes === undefined || cluster.nodes.length < 1) {
-      throw new TypeError(
-        "cluster configuration must contain at least one node",
-      );
-    }
-
-    if (operations === undefined || operations === null) {
-      throw new TypeError("valid operations specification is required");
-    }
-
-    if (
-      Object.keys(operations).length !== 1 ||
-      (!operations.store && !operations.match && !operations.sum)
-    ) {
-      throw new TypeError("secret key must enable exactly one operation");
-    }
-
-    this.material = {};
-    this.cluster = cluster;
-    this.operations = operations;
-
-    if (this.operations.store) {
-      if (this.cluster.nodes.length === 1) {
-        this.material = sodium.randombytes_buf(
-          sodium.crypto_secretbox_KEYBYTES,
-        );
-      }
-    }
-
-    if (this.operations.match) {
-      this.material = sodium.randombytes_buf(64); // Salt for hashing.
-    }
-
-    // For the sum operation, initialization must occur within `generate`.
+function _xor(a: Buffer, b: Buffer): Buffer {
+  const length = Math.min(a.length, b.length);
+  const r = Buffer.alloc(length);
+  for (let i = 0; i < length; i++) {
+    r[i] = a[i] ^ b[i];
   }
-
-  /**
-   * Generate a new secret key built according to what is specified in the supplied
-   * cluster configuration and operation list.
-   */
-  public static async generate(
-    cluster: Cluster | null,
-    operations: Operations | null,
-  ): Promise<SecretKey> {
-    const secretKey = new SecretKey(cluster, operations);
-    if (secretKey instanceof SecretKey && secretKey.operations.sum) {
-      if (secretKey.cluster.nodes.length === 1) {
-        const { privateKey } = await paillierBigint.generateRandomKeys(2048);
-        secretKey.material = privateKey;
-      }
-      // In a multi-node cluster, secret sharing is used (which does not require a
-      // secret key value).
-    }
-    return secretKey;
-  }
-
-  /**
-   * Return a JSON-compatible object representation of the key instance.
-   */
-  public dump(): object {
-    const object = {
-      material: {},
-      cluster: this.cluster,
-      operations: this.operations,
-    };
-
-    if (Object.keys(this.material).length === 0) {
-      // There is no key material for clusters with multiple nodes.
-    } else if (this.material instanceof Uint8Array) {
-      object.material = _pack(this.material);
-    } else {
-      // Secret key for Paillier encryption.
-      const privateKey = this.material as {
-        publicKey: { n: bigint; g: bigint };
-        lambda: bigint;
-        mu: bigint;
-      };
-      object.material = {
-        n: privateKey.publicKey.n.toString(),
-        g: privateKey.publicKey.g.toString(),
-        l: privateKey.lambda.toString(),
-        m: privateKey.mu.toString(),
-      };
-    }
-
-    return object;
-  }
-
-  /**
-   * Create an instance from its JSON-compatible object representation.
-   */
-  public static load(object: object): SecretKey {
-    const errorInvalid = new TypeError(
-      "invalid object representation of a secret key",
-    );
-
-    if (
-      !("material" in object && "cluster" in object && "operations" in object)
-    ) {
-      throw errorInvalid;
-    }
-
-    const secretKey = new SecretKey(
-      object.cluster as Cluster,
-      object.operations as Operations,
-    );
-
-    const material = object.material as object;
-
-    if (Object.keys(material).length === 0) {
-      // There is no key material for clusters with multiple nodes.
-    } else if (typeof material === "string") {
-      secretKey.material = _unpack(material);
-    } else {
-      // Secret key for Paillier encryption.
-      if (
-        !(
-          "l" in material &&
-          "m" in material &&
-          "n" in material &&
-          "g" in material
-        )
-      ) {
-        throw errorInvalid;
-      }
-
-      if (
-        !(
-          typeof material.l === "string" &&
-          typeof material.m === "string" &&
-          typeof material.n === "string" &&
-          typeof material.g === "string"
-        )
-      ) {
-        throw errorInvalid;
-      }
-
-      secretKey.material = new paillierBigint.PrivateKey(
-        BigInt(material.l as string),
-        BigInt(material.m as string),
-        new paillierBigint.PublicKey(
-          BigInt(material.n as string),
-          BigInt(material.g as string),
-        ),
-      );
-    }
-
-    return secretKey;
-  }
-}
-
-/**
- * Data structure for representing all categories of public key.
- */
-class PublicKey {
-  material: object;
-  cluster: Cluster;
-  operations: Operations;
-
-  private constructor(secretKey: SecretKey) {
-    this.cluster = secretKey.cluster;
-    this.operations = secretKey.operations;
-
-    if (
-      "publicKey" in secretKey.material &&
-      secretKey.material.publicKey instanceof paillierBigint.PublicKey
-    ) {
-      this.material = secretKey.material.publicKey;
-    } else {
-      throw new TypeError("cannot create public key for supplied secret key");
-    }
-  }
-
-  /**
-   * Generate a new public key corresponding to the supplied secret key
-   * according to any information contained therein.
-   */
-  public static async generate(secretKey: SecretKey): Promise<PublicKey> {
-    return new PublicKey(secretKey);
-  }
-
-  /**
-   * Return a JSON-compatible object representation of the key instance.
-   */
-  public dump(): object {
-    const object = {
-      material: {},
-      cluster: this.cluster,
-      operations: this.operations,
-    };
-
-    if ("n" in this.material && "g" in this.material) {
-      // Public key for Paillier encryption.
-      const publicKey = this.material as paillierBigint.PublicKey;
-      object.material = {
-        n: publicKey.n.toString(),
-        g: publicKey.g.toString(),
-      };
-    }
-
-    return object;
-  }
-
-  /**
-   * Create an instance from its JSON-compatible object representation.
-   */
-  public static load(object: object): PublicKey {
-    const errorInvalid = new TypeError(
-      "invalid object representation of a public key",
-    );
-
-    if (
-      !("material" in object && "cluster" in object && "operations" in object)
-    ) {
-      throw errorInvalid;
-    }
-
-    const publicKey = {} as PublicKey;
-    publicKey.cluster = object.cluster as Cluster;
-    publicKey.operations = object.operations as Operations;
-
-    const material = object.material as object;
-
-    if (!("n" in material && "g" in material)) {
-      throw errorInvalid;
-    }
-
-    if (!(typeof material.n === "string" && typeof material.g === "string")) {
-      throw errorInvalid;
-    }
-
-    publicKey.material = new paillierBigint.PublicKey(
-      BigInt(material.n as string),
-      BigInt(material.g as string),
-    );
-
-    return publicKey;
-  }
+  return r;
 }
 
 /**
@@ -313,24 +68,44 @@ function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 /**
- * Mathematically standard modulus operator.
+ * Helper function to compare two arrays of strings.
  */
-const _mod = (n: bigint, m: bigint): bigint => {
-  const num = n < 0 ? n + m : n;
-  return ((num % m) + m) % m;
-};
+function _equalKeys(a: Array<string>, b: Array<string>) {
+  const zip = (a: Array<string>, b: Array<string>) =>
+    a.map((k, i) => [k, b[i]]);
+  return zip(a, b).every((pair) => pair[0] === pair[1]);
+}
 
 /**
- * Componentwise XOR of two buffers.
+ * Generate random integer (via rejection sampling) for use as a secret share or mask.
  */
-const _xor = (a: Buffer, b: Buffer): Buffer => {
-  const length = Math.min(a.length, b.length);
-  const r = Buffer.alloc(length);
-  for (let i = 0; i < length; i++) {
-    r[i] = a[i] ^ b[i];
+function _randomInteger(minimum: bigint, maximum: bigint): bigint {
+  if (minimum < 0 || minimum > 1) {
+    throw new RangeError("minimum must be 0 or 1");
   }
-  return r;
-};
+
+  if (maximum <= minimum || maximum >= _SECRET_SHARED_SIGNED_INTEGER_MODULUS) {
+    throw new RangeError(
+      "maximum must be greater than the minimum and less than the modulus",
+    );
+  }
+
+  const range = maximum - minimum;
+  let integer = null;
+  while (integer === null || integer > range) {
+    const uint8Array = sodium.randombytes_buf(8);
+    uint8Array[4] &= 0b00000001;
+    uint8Array[5] &= 0b00000000;
+    uint8Array[6] &= 0b00000000;
+    uint8Array[7] &= 0b00000000;
+    const buffer = Buffer.from(uint8Array);
+    const small = BigInt(buffer.readUInt32LE(0));
+    const large = BigInt(buffer.readUInt32LE(4));
+    integer = small + large * 2n ** 32n;
+  }
+
+  return minimum + integer;
+}
 
 /**
  * Return a SHA-512 hash of the supplied string.
@@ -392,6 +167,327 @@ function _decode(bytes: Uint8Array): bigint | string {
 }
 
 /**
+ * Cluster configuration information.
+ */
+interface Cluster {
+  nodes: object[];
+}
+
+/**
+ * Record indicating what operations on ciphertexts are supported.
+ */
+interface Operations {
+  store?: boolean;
+  match?: boolean;
+  sum?: boolean;
+}
+
+/**
+ * Data structure for representing all categories of secret key.
+ */
+class SecretKey {
+  material: object | number;
+  cluster: Cluster;
+  operations: Operations;
+
+  protected constructor(
+    cluster: Cluster | null,
+    operations: Operations | null,
+  ) {
+    if (cluster === undefined || cluster === null) {
+      throw new TypeError("valid cluster configuration is required");
+    }
+
+    if (cluster.nodes === undefined || cluster.nodes.length < 1) {
+      throw new TypeError(
+        "cluster configuration must contain at least one node",
+      );
+    }
+
+    if (operations === undefined || operations === null) {
+      throw new TypeError("valid operations specification is required");
+    }
+
+    if (
+      Object.keys(operations).length !== 1 ||
+      (!operations.store && !operations.match && !operations.sum)
+    ) {
+      throw new TypeError("secret key must enable exactly one operation");
+    }
+
+    this.material = {};
+    this.cluster = cluster;
+    this.operations = operations;
+
+    if (this.operations.store) {
+      if (this.cluster.nodes.length === 1) {
+        this.material = sodium.randombytes_buf(
+          sodium.crypto_secretbox_KEYBYTES,
+        );
+      } else {
+        this.material = sodium.randombytes_buf(
+          _PLAINTEXT_STRING_BUFFER_LEN_MAX,
+        );
+      }
+    }
+
+    if (this.operations.match) {
+      this.material = sodium.randombytes_buf(64); // Salt for hashing.
+    }
+
+    if (this.operations.sum) {
+      // For single-node clusters, initialization must occur within `generate`.
+      if (this.cluster.nodes.length > 1) {
+        this.material = Number(
+          _randomInteger(1n, _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n),
+        );
+      }
+    }
+  }
+
+  /**
+   * Generate a new secret key built according to what is specified in the supplied
+   * cluster configuration and operation list.
+   */
+  public static async generate(
+    cluster: Cluster | null,
+    operations: Operations | null,
+  ): Promise<SecretKey> {
+    const secretKey = new SecretKey(cluster, operations);
+    if (secretKey instanceof SecretKey && secretKey.operations.sum) {
+      if (secretKey.cluster.nodes.length === 1) {
+        const { privateKey } = await paillierBigint.generateRandomKeys(2048);
+        secretKey.material = privateKey;
+      }
+      // In a multi-node cluster, secret sharing is used (which does not require a
+      // secret key value).
+    }
+    return secretKey;
+  }
+
+  /**
+   * Return a JSON-compatible object representation of the key instance.
+   */
+  public dump(): object {
+    const object = {
+      material: {},
+      cluster: this.cluster,
+      operations: this.operations,
+    };
+
+    if (typeof this.material === "number") {
+      object.material = this.material;
+    } else if (this.material instanceof Uint8Array) {
+      object.material = _pack(this.material);
+    } else if (Object.keys(this.material as object).length === 0) {
+      // There is no key material.
+    } else {
+      // Secret key for Paillier encryption.
+      const privateKey = this.material as {
+        publicKey: { n: bigint; g: bigint };
+        lambda: bigint;
+        mu: bigint;
+      };
+      object.material = {
+        n: privateKey.publicKey.n.toString(),
+        g: privateKey.publicKey.g.toString(),
+        l: privateKey.lambda.toString(),
+        m: privateKey.mu.toString(),
+      };
+    }
+
+    return object;
+  }
+
+  /**
+   * Create an instance from its JSON-compatible object representation.
+   */
+  public static load(object: object): SecretKey {
+    const errorInvalid = new TypeError(
+      "invalid object representation of a secret key",
+    );
+
+    if (
+      !("material" in object && "cluster" in object && "operations" in object)
+    ) {
+      throw errorInvalid;
+    }
+
+    const secretKey = new SecretKey(
+      object.cluster as Cluster,
+      object.operations as Operations,
+    );
+
+    if (typeof object.material === "number") {
+      secretKey.material = object.material;
+    } else if (typeof object.material === "string") {
+      secretKey.material = _unpack(object.material);
+    } else if (Object.keys(object.material as object).length === 0) {
+      // There is no key material.
+    } else {
+      const material = object.material as object;
+
+      // Secret key for Paillier encryption.
+      if (
+        !(
+          "l" in material &&
+          "m" in material &&
+          "n" in material &&
+          "g" in material
+        )
+      ) {
+        throw errorInvalid;
+      }
+
+      if (
+        !(
+          typeof material.l === "string" &&
+          typeof material.m === "string" &&
+          typeof material.n === "string" &&
+          typeof material.g === "string"
+        )
+      ) {
+        throw errorInvalid;
+      }
+
+      secretKey.material = new paillierBigint.PrivateKey(
+        BigInt(material.l as string),
+        BigInt(material.m as string),
+        new paillierBigint.PublicKey(
+          BigInt(material.n as string),
+          BigInt(material.g as string),
+        ),
+      );
+    }
+
+    return secretKey;
+  }
+}
+
+/**
+ * Data structure for representing all categories of cluster key.
+ */
+class ClusterKey extends SecretKey {
+  /**
+   * Generate a new cluster key built according to what is specified in the supplied
+   * cluster configuration and operation list.
+   */
+  public static async generate(
+    cluster: Cluster | null,
+    operations: Operations | null,
+  ): Promise<ClusterKey> {
+    const clusterKey = await SecretKey.generate(cluster, operations);
+
+    // Ensure that the secret key material is the identity value
+    // for the supported operation.
+    if (clusterKey.cluster.nodes.length > 1) {
+      if (clusterKey.operations.store) {
+        clusterKey.material = Buffer.alloc(_PLAINTEXT_STRING_BUFFER_LEN_MAX);
+      }
+      if (clusterKey.operations.sum) {
+        clusterKey.material = 1;
+      }
+    }
+
+    return clusterKey as ClusterKey;
+  }
+}
+
+/**
+ * Data structure for representing all categories of public key.
+ */
+class PublicKey {
+  material: object;
+  cluster: Cluster;
+  operations: Operations;
+
+  private constructor(secretKey: SecretKey) {
+    this.cluster = secretKey.cluster;
+    this.operations = secretKey.operations;
+
+    if (
+      typeof secretKey.material === "object" &&
+      "publicKey" in secretKey.material &&
+      secretKey.material.publicKey instanceof paillierBigint.PublicKey
+    ) {
+      this.material = secretKey.material.publicKey;
+    } else {
+      throw new TypeError("cannot create public key for supplied secret key");
+    }
+  }
+
+  /**
+   * Generate a new public key corresponding to the supplied secret key
+   * according to any information contained therein.
+   */
+  public static async generate(secretKey: SecretKey): Promise<PublicKey> {
+    return new PublicKey(secretKey);
+  }
+
+  /**
+   * Return a JSON-compatible object representation of the key instance.
+   */
+  public dump(): object {
+    const object = {
+      material: {},
+      cluster: this.cluster,
+      operations: this.operations,
+    };
+
+    if (
+      typeof this.material === "object" &&
+      "n" in this.material &&
+      "g" in this.material
+    ) {
+      // Public key for Paillier encryption.
+      const publicKey = this.material as paillierBigint.PublicKey;
+      object.material = {
+        n: publicKey.n.toString(),
+        g: publicKey.g.toString(),
+      };
+    }
+
+    return object;
+  }
+
+  /**
+   * Create an instance from its JSON-compatible object representation.
+   */
+  public static load(object: object): PublicKey {
+    const errorInvalid = new TypeError(
+      "invalid object representation of a public key",
+    );
+
+    if (
+      !("material" in object && "cluster" in object && "operations" in object)
+    ) {
+      throw errorInvalid;
+    }
+
+    const publicKey = {} as PublicKey;
+    publicKey.cluster = object.cluster as Cluster;
+    publicKey.operations = object.operations as Operations;
+
+    const material = object.material as object;
+
+    if (!("n" in material && "g" in material)) {
+      throw errorInvalid;
+    }
+
+    if (!(typeof material.n === "string" && typeof material.g === "string")) {
+      throw errorInvalid;
+    }
+
+    publicKey.material = new paillierBigint.PublicKey(
+      BigInt(material.n as string),
+      BigInt(material.g as string),
+    );
+
+    return publicKey;
+  }
+}
+
+/**
  * Return a new secret key built according to what is specified in the supplied
  * cluster configuration and operation list.
  */
@@ -437,8 +533,9 @@ async function encrypt(
     bytes = Buffer.from(_encode(plaintext));
 
     if (bytes.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX) {
+      const len = _PLAINTEXT_STRING_BUFFER_LEN_MAX;
       throw new TypeError(
-        "string plaintext must be possible to encode in 4096 bytes or fewer",
+        `string plaintext must be possible to encode in ${len} bytes or fewer`,
       );
     }
   }
@@ -479,7 +576,14 @@ async function encrypt(
         aggregate = _xor(aggregate, mask);
         shares.push(new Uint8Array(mask));
       }
-      shares.push(new Uint8Array(_xor(aggregate, Buffer.from(bytes))));
+      shares.push(
+        new Uint8Array(
+          _xor(
+            aggregate,
+            _xor(secretKey.material as Buffer, Buffer.from(bytes)),
+          ),
+        ),
+      );
       instance = shares.map(_pack);
     }
   }
@@ -512,6 +616,8 @@ async function encrypt(
 
   // Encrypt a `number` or `bigint` instance for summation.
   if (key.operations.sum) {
+    const secretKey = key as SecretKey;
+
     // Only 32-bit signed integer values are supported.
     if (!(typeof plaintext === "number" || typeof plaintext === "bigint")) {
       throw new TypeError(
@@ -527,9 +633,10 @@ async function encrypt(
       // public key object for the Paillier library.
       let paillierPublicKey: paillierBigint.PublicKey;
 
-      if ("publicKey" in key.material) {
+      if ("publicKey" in (key.material as object)) {
         // Secret key was supplied.
-        paillierPublicKey = key.material.publicKey as paillierBigint.PublicKey;
+        paillierPublicKey = (key.material as { publicKey: object })
+          .publicKey as paillierBigint.PublicKey;
       } else {
         // Public key was supplied.
         paillierPublicKey = (key as PublicKey)
@@ -549,13 +656,25 @@ async function encrypt(
       const shares: bigint[] = [];
       let total = BigInt(0);
       for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
-        const mask = Buffer.alloc(4);
-        crypto.getRandomValues(mask);
-        const share = BigInt(mask.readUInt32BE(0));
-        shares.push(share);
+        const share = _randomInteger(
+          0n,
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
+        );
+        shares.push(
+          _mod(
+            BigInt(secretKey.material as number) * share,
+            _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+          ),
+        );
         total = _mod(total + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
       }
-      shares.push(_mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS));
+      shares.push(
+        _mod(
+          _mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS) *
+            BigInt(secretKey.material as number),
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        ),
+      );
       instance = shares.map(Number);
     }
   }
@@ -632,7 +751,7 @@ async function decrypt(
       for (let i = 1; i < shares.length; i++) {
         bytes = Buffer.from(_xor(bytes, Buffer.from(shares[i])));
       }
-      instance = _decode(bytes);
+      instance = _decode(_xor(secretKey.material as Buffer, bytes));
     }
 
     return instance;
@@ -651,11 +770,20 @@ async function decrypt(
       instance += _PLAINTEXT_SIGNED_INTEGER_MIN;
     } else {
       // Multi-node clusters use additive secret sharing.
-      const shares = ciphertext as number[];
       instance = BigInt(0);
+      const inverse = _pow(
+        BigInt(secretKey.material as number),
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      );
+      const shares = ciphertext as number[];
       for (const share of shares) {
+        const share_ = _mod(
+          BigInt(share) * inverse,
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        );
         instance = _mod(
-          instance + BigInt(share),
+          instance + share_,
           _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
         );
       }
@@ -730,7 +858,7 @@ function allot(document: object): object[] {
         items.every((item) => typeof item === "number") ||
         items.every((item) => typeof item === "string")
       ) {
-        // Simple allotment.
+        // Simple allotment with a single ciphertext.
         const shares = [];
         for (let i = 0; i < items.length; i++) {
           shares.push({ $share: items[i] });
@@ -738,7 +866,7 @@ function allot(document: object): object[] {
         return shares;
       }
 
-      // More complex allotment with nested lists of shares.
+      // More complex allotment with nested lists of ciphertexts.
       const sharesArrays = allot(
         items.map((item) => {
           return { $allot: item };
@@ -799,6 +927,7 @@ function allot(document: object): object[] {
 async function unify(
   secretKey: SecretKey,
   documents: object[],
+  ignore: string[] = ["_created", "_updated"],
 ): Promise<object | Array<object>> {
   if (documents.length === 1) {
     return documents[0];
@@ -812,6 +941,7 @@ async function unify(
         const result = await unify(
           secretKey,
           documents.map((document) => document[i]),
+          ignore,
         );
         results.push(result);
       }
@@ -844,7 +974,7 @@ async function unify(
         for (let j = 0; j < documents.length; j++) {
           shares.push({ $share: unwrapped[j][i] });
         }
-        results.push(await unify(secretKey, shares));
+        results.push(await unify(secretKey, shares, ignore));
       }
       return results;
     }
@@ -853,16 +983,23 @@ async function unify(
     const keys: Array<string> = Object.keys(documents[0]);
     const zip = (a: Array<string>, b: Array<string>) =>
       a.map((k, i) => [k, b[i]]);
-    if (documents.every((document) => equalKeys(keys, Object.keys(document)))) {
+    if (
+      documents.every((document) => _equalKeys(keys, Object.keys(document)))
+    ) {
       const results: { [k: string]: object } = {};
       for (const key in documents[0]) {
-        const result = await unify(
-          secretKey,
-          documents.map(
-            (document) => (document as { [k: string]: object })[key],
-          ),
-        );
-        results[key] = result;
+        // For ignored keys, unification is not performed and they are
+        // omitted from the results.
+        if (ignore.indexOf(key) === -1) {
+          const result = await unify(
+            secretKey,
+            documents.map(
+              (document) => (document as { [k: string]: object })[key],
+            ),
+            ignore,
+          );
+          results[key] = result;
+        }
       }
       return results;
     }
@@ -885,6 +1022,7 @@ async function unify(
  */
 export const nilql = {
   SecretKey,
+  ClusterKey,
   PublicKey,
   encrypt,
   decrypt,
