@@ -32,6 +32,7 @@
     "test": "vitest run",
     "lint": "biome check",
     "typecheck": "tsc",
+    "exportscheck": "attw --pack .",
     "install-hooks": "lefthook install"
   },
   "engines": {
@@ -42,6 +43,7 @@
     "paillier-bigint": "^3.4.3"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.17.3",
     "@biomejs/biome": "^1.9.4",
     "@commitlint/cli": "^19.6.1",
     "@commitlint/config-conventional": "^19.6.0",
