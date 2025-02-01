@@ -1,6 +1,8 @@
 /**
- * NilQL: Library for working with encrypted data within NilDB queries and replies.
+ * TypeScript library for working with encrypted data within nilDB queries
+ * and replies.
  */
+import * as bcu from "bigint-crypto-utils";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
@@ -28,21 +30,7 @@ const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
  * Mathematically standard modulus operator.
  */
 function _mod(n: bigint, m: bigint): bigint {
-  const num = n < 0 ? n + m : n;
-  return ((num % m) + m) % m;
-}
-
-/**
- * Modular exponentiation.
- */
-function _pow(n: bigint, k: bigint, m: bigint): bigint {
-  if (k === 0n) {
-    return 1n;
-  }
-  if (k % 2n === 0n) {
-    return _pow(n, k / 2n, m) ** 2n % m;
-  }
-  return (n * _pow(n, k - 1n, m)) % m;
+  return (((n < 0 ? n + m : n) % m) + m) % m;
 }
 
 /**
@@ -77,14 +65,28 @@ function _equalKeys(a: Array<string>, b: Array<string>) {
 }
 
 /**
+ * Return a SHA-512 hash of the supplied string.
+ */
+async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
+  const buffer = await crypto.subtle.digest("SHA-512", bytes);
+  return new Uint8Array(buffer);
+}
+
+/**
+ * Generate random byte sequence.
+ */
+async function _randomBytes(length: number): Promise<Uint8Array> {
+  await sodium.ready;
+  return sodium.randombytes_buf(length);
+}
+
+/**
  * Generate random integer (via rejection sampling) for use as a secret share or mask.
  */
 async function _randomInteger(
   minimum: bigint,
   maximum: bigint,
 ): Promise<bigint> {
-  await sodium.ready;
-
   if (minimum < 0 || minimum > 1) {
     throw new RangeError("minimum must be 0 or 1");
   }
@@ -98,7 +100,8 @@ async function _randomInteger(
   const range = maximum - minimum;
   let integer = null;
   while (integer === null || integer > range) {
-    const uint8Array = sodium.randombytes_buf(8);
+    const uint8Array = await _randomBytes(8);
+
     uint8Array[4] &= 0b00000001;
     uint8Array[5] &= 0b00000000;
     uint8Array[6] &= 0b00000000;
@@ -110,14 +113,6 @@ async function _randomInteger(
   }
 
   return minimum + integer;
-}
-
-/**
- * Return a SHA-512 hash of the supplied string.
- */
-async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
-  const buffer = await crypto.subtle.digest("SHA-512", bytes);
-  return new Uint8Array(buffer);
 }
 
 /**
@@ -195,22 +190,11 @@ class SecretKey {
   cluster: Cluster;
   operations: Operations;
 
-  protected constructor(
-    cluster: Cluster | null,
-    operations: Operations | null,
-  ) {
-    if (cluster === undefined || cluster === null) {
-      throw new TypeError("valid cluster configuration is required");
-    }
-
+  protected constructor(cluster: Cluster, operations: Operations) {
     if (cluster.nodes === undefined || cluster.nodes.length < 1) {
       throw new TypeError(
         "cluster configuration must contain at least one node",
       );
-    }
-
-    if (operations === undefined || operations === null) {
-      throw new TypeError("valid operations specification is required");
     }
 
     if (
@@ -230,8 +214,8 @@ class SecretKey {
    * cluster configuration and operation list.
    */
   public static async generate(
-    cluster: Cluster | null,
-    operations: Operations | null,
+    cluster: Cluster,
+    operations: Operations,
   ): Promise<SecretKey> {
     await sodium.ready;
 
@@ -239,18 +223,18 @@ class SecretKey {
 
     if (secretKey.operations.store) {
       if (secretKey.cluster.nodes.length === 1) {
-        secretKey.material = sodium.randombytes_buf(
+        secretKey.material = await _randomBytes(
           sodium.crypto_secretbox_KEYBYTES,
         );
       } else {
-        secretKey.material = sodium.randombytes_buf(
+        secretKey.material = await _randomBytes(
           _PLAINTEXT_STRING_BUFFER_LEN_MAX,
         );
       }
     }
 
     if (secretKey.operations.match) {
-      secretKey.material = sodium.randombytes_buf(64); // Salt for hashing.
+      secretKey.material = await _randomBytes(64); // Salt for hashing.
     }
 
     if (secretKey.operations.sum) {
@@ -374,8 +358,8 @@ class ClusterKey extends SecretKey {
    * cluster configuration and operation list.
    */
   public static async generate(
-    cluster: Cluster | null,
-    operations: Operations | null,
+    cluster: Cluster,
+    operations: Operations,
   ): Promise<ClusterKey> {
     const clusterKey = await SecretKey.generate(cluster, operations);
 
@@ -489,18 +473,6 @@ class PublicKey {
 }
 
 /**
- * Return a new secret key built according to what is specified in the supplied
- * cluster configuration and operation list.
- */
-async function secretKey(
-  cluster: Cluster | null,
-  operations: Operations | null,
-): Promise<SecretKey> {
-  // Key object to be returned from this invocation.
-  return SecretKey.generate(cluster, operations);
-}
-
-/**
  * Return the ciphertext obtained by encrypting the supplied plaintext
  * using the supplied key.
  */
@@ -541,9 +513,6 @@ async function encrypt(
     }
   }
 
-  // Ciphertext object to be returned from this invocation.
-  let instance: string | string[] | number[];
-
   // Encrypt a value for storage and retrieval.
   if (key.operations.store) {
     const secretKey = key as SecretKey;
@@ -561,13 +530,15 @@ async function encrypt(
       // For single-node clusters, the data is encrypted using a symmetric key.
       const symmetricKey = secretKey.material as Uint8Array;
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-      instance = _pack(
+      return _pack(
         _concat(
           nonce,
           sodium.crypto_secretbox_easy(bytes, nonce, symmetricKey),
         ),
       );
-    } else if (key.cluster.nodes.length > 1) {
+    }
+
+    if (key.cluster.nodes.length > 1) {
       // For multi-node clusters, the ciphertext is secret-shared across the nodes
       // using XOR.
       const shares: Uint8Array[] = [];
@@ -585,7 +556,7 @@ async function encrypt(
           ),
         ),
       );
-      instance = shares.map(_pack);
+      return shares.map(_pack);
     }
   }
 
@@ -607,12 +578,12 @@ async function encrypt(
     );
     const packed = _pack(hashed);
 
-    // For multi-node clusters, the ciphertext is replicated across all nodes.
     if (key.cluster.nodes.length === 1) {
-      instance = packed;
-    } else {
-      instance = key.cluster.nodes.map((_) => packed);
+      return packed;
     }
+
+    // The ciphertext is replicated across all nodes for multiple-node clusters.
+    return key.cluster.nodes.map((_) => packed);
   }
 
   // Encrypt a `number` or `bigint` instance for summation.
@@ -649,39 +620,40 @@ async function encrypt(
         paillierPublicKey.n,
         paillierPublicKey.g,
       );
-      instance = paillierPublicKey
+      return paillierPublicKey
         .encrypt(bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN)
         .toString(16);
-    } else {
-      // Use additive secret sharing for multi-node clusters.
-      const shares: bigint[] = [];
-      let total = BigInt(0);
-      for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
-        const share = await _randomInteger(
-          0n,
-          _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
-        );
-        shares.push(
-          _mod(
-            BigInt(secretKey.material as number) * share,
-            _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-          ),
-        );
-        total = _mod(total + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
-      }
+    }
+
+    // Use additive secret sharing for multiple-node clusters.
+    const shares: bigint[] = [];
+    let total = BigInt(0);
+    for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
+      const share = await _randomInteger(
+        0n,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
+      );
       shares.push(
         _mod(
-          _mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS) *
-            BigInt(secretKey.material as number),
+          BigInt(secretKey.material as number) * share,
           _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
         ),
       );
-      instance = shares.map(Number);
+      total = _mod(total + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
     }
+    shares.push(
+      _mod(
+        _mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS) *
+          BigInt(secretKey.material as number),
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      ),
+    );
+    return shares.map(Number);
   }
 
-  // @ts-expect-error: fixing requires an out-of-scope type refactor
-  return instance;
+  // The below should not occur unless the key's cluster or operations
+  // information is malformed or missing.
+  throw new Error("internal encryption error");
 }
 
 /**
@@ -772,7 +744,7 @@ async function decrypt(
     } else {
       // Multi-node clusters use additive secret sharing.
       instance = BigInt(0);
-      const inverse = _pow(
+      const inverse = bcu.modPow(
         BigInt(secretKey.material as number),
         _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
         _SECRET_SHARED_SIGNED_INTEGER_MODULUS,

@@ -135,30 +135,6 @@ describe("methods of cryptographic key classes", () => {
 describe("errors involving methods of cryptographic key classes", () => {
   test("errors in secret key generation", async () => {
     try {
-      const secretKey = await nilql.SecretKey.generate(null, null);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("valid cluster configuration is required"),
-      );
-    }
-
-    try {
-      const secretKey = await nilql.SecretKey.generate({ nodes: [] }, null);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("cluster configuration must contain at least one node"),
-      );
-    }
-
-    try {
-      const secretKey = await nilql.SecretKey.generate({ nodes: [{}] }, null);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("valid operations specification is required"),
-      );
-    }
-
-    try {
       const secretKey = await nilql.SecretKey.generate(
         { nodes: [{}] },
         { match: true, sum: true },

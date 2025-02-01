@@ -1,6 +1,6 @@
 {
   "name": "@nillion/nilql",
-  "version": "0.0.0-alpha.8",
+  "version": "0.0.0-alpha.9",
   "description": "Library for working with encrypted data within NilDB queries and replies.",
   "license": "MIT",
   "homepage": "https://github.com/nillionnetwork/nilql-ts",
@@ -40,6 +40,7 @@
   },
   "dependencies": {
     "libsodium-wrappers-sumo": "^0.7.15",
+    "bigint-crypto-utils": "^3.3.0",
     "paillier-bigint": "^3.4.3"
   },
   "devDependencies": {
