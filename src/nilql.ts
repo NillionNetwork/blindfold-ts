@@ -746,9 +746,6 @@ async function decrypt(
     }
   }
 
-  // Result object to be returned from this invocation.
-  let instance: bigint | string;
-
   // Decrypt a value that was encrypted for storage.
   if (secretKey.operations.store) {
     // Decrypt based on whether the key is for a single-node or multi-node cluster.
@@ -760,12 +757,9 @@ async function decrypt(
       const cipher = bytes.subarray(sodium.crypto_secretbox_NONCEBYTES);
 
       try {
-        const plain = sodium.crypto_secretbox_open_easy(
-          cipher,
-          nonce,
-          symmetricKey,
+        return _decode(
+          sodium.crypto_secretbox_open_easy(cipher, nonce, symmetricKey),
         );
-        instance = _decode(plain);
       } catch (error) {
         throw new TypeError(
           "ciphertext cannot be decrypted using supplied secret key",
@@ -778,10 +772,8 @@ async function decrypt(
       for (let i = 1; i < shares.length; i++) {
         bytes = Buffer.from(_xor(bytes, Buffer.from(shares[i])));
       }
-      instance = _decode(_xor(secretKey.material as Buffer, bytes));
+      return _decode(_xor(secretKey.material as Buffer, bytes));
     }
-
-    return instance;
   }
 
   // Decrypt an encrypted numerical value that supports summation.
@@ -791,35 +783,37 @@ async function decrypt(
       // Single-node clusters use Paillier ciphertexts.
       const paillierPrivateKey =
         secretKey.material as paillierBigint.PrivateKey;
-      instance = paillierPrivateKey.decrypt(
-        BigInt(`0x${ciphertext as string}`),
+      return (
+        paillierPrivateKey.decrypt(BigInt(`0x${ciphertext as string}`)) +
+        _PLAINTEXT_SIGNED_INTEGER_MIN
       );
-      instance += _PLAINTEXT_SIGNED_INTEGER_MIN;
-    } else {
-      // Multi-node clusters use additive secret sharing.
-      instance = BigInt(0);
-      const inverse = bcu.modPow(
-        BigInt(secretKey.material as number),
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-      );
-      const shares = ciphertext as number[];
-      for (const share of shares) {
-        const share_ = _mod(
-          BigInt(share) * inverse,
-          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-        );
-        instance = _mod(
-          instance + share_,
-          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-        );
-      }
-      if (instance > _PLAINTEXT_SIGNED_INTEGER_MAX) {
-        instance -= _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
-      }
     }
 
-    return instance;
+    // Multi-node clusters use additive secret sharing.
+    let plaintext = BigInt(0);
+    const inverse = bcu.modPow(
+      BigInt(secretKey.material as number),
+      _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
+      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+    );
+    const shares = ciphertext as number[];
+    for (const share of shares) {
+      const share_ = _mod(
+        BigInt(share) * inverse,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      );
+      plaintext = _mod(
+        plaintext + share_,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      );
+    }
+
+    return (
+      plaintext -
+      (plaintext > _PLAINTEXT_SIGNED_INTEGER_MAX
+        ? _SECRET_SHARED_SIGNED_INTEGER_MODULUS
+        : 0n)
+    );
   }
 
   throw new TypeError(
