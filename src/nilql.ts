@@ -430,6 +430,16 @@ class ClusterKey extends SecretKey {
 
     return clusterKey as ClusterKey;
   }
+
+  /**
+   * Create an instance from its JSON-compatible object representation.
+   */
+  public static load(object: object): ClusterKey {
+    const secretKey = SecretKey.load(object);
+    const clusterKey = new ClusterKey(secretKey.cluster, secretKey.operations);
+    clusterKey.material = secretKey.material;
+    return clusterKey;
+  }
 }
 
 /**

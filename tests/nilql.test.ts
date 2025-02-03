@@ -138,7 +138,7 @@ describe("methods of cryptographic key classes", () => {
     expect(decrypted).toEqual(plaintext);
   });
 
-  test("generate, dump, JSONify, and load key for sum operation with multiple nodes", async () => {
+  test("generate, dump, JSONify, and load secret key for sum operation with multiple nodes", async () => {
     const cluster = { nodes: [{}, {}, {}] };
     const secretKey = await nilql.SecretKey.generate(cluster, { sum: true });
 
@@ -148,6 +148,20 @@ describe("methods of cryptographic key classes", () => {
     const plaintext = BigInt(123);
     const ciphertext = await nilql.encrypt(secretKey, plaintext);
     const decrypted = await nilql.decrypt(secretKeyLoaded, ciphertext);
+    expect(decrypted).toEqual(plaintext);
+  });
+
+  test("generate, dump, JSONify, and load cluster key for sum operation with multiple nodes", async () => {
+    const cluster = { nodes: [{}, {}, {}] };
+    const clusterKey = await nilql.ClusterKey.generate(cluster, { sum: true });
+
+    const clusterKeyObject = JSON.parse(JSON.stringify(clusterKey.dump()));
+    const clusterKeyLoaded = nilql.ClusterKey.load(clusterKeyObject);
+    expect(clusterKeyLoaded instanceof nilql.ClusterKey).toEqual(true);
+
+    const plaintext = BigInt(123);
+    const ciphertext = await nilql.encrypt(clusterKey, plaintext);
+    const decrypted = await nilql.decrypt(clusterKeyLoaded, ciphertext);
     expect(decrypted).toEqual(plaintext);
   });
 
