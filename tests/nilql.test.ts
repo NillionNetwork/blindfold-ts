@@ -11,16 +11,34 @@ import { nilql } from "#/nilql";
  * Helper function for converting an object that may contain `bigint` values
  * to JSON.
  */
-function toJSON(o: object) {
+function toJSON(o: object): string {
   return JSON.stringify(o, (_, v) =>
     typeof v === "bigint" ? v.toString() : v,
   );
 }
 
 /**
+ * Helper function for converting a large binary output from a test into a
+ * short hash.
+ */
+async function toHashBase64(output: Uint8Array | number): Promise<string> {
+  let value = output;
+
+  if (typeof value === "number") {
+    const buffer = Buffer.alloc(8);
+    buffer.writeBigInt64LE(BigInt(value), 0);
+    value = new Uint8Array(buffer);
+  }
+
+  return Buffer.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", value)),
+  ).toString("base64");
+}
+
+/**
  * Helper function to compare two arrays of object keys (i.e., strings).
  */
-function equalKeys(a: Array<string>, b: Array<string>) {
+function equalKeys(a: Array<string>, b: Array<string>): boolean {
   const zip = (a: Array<string>, b: Array<string>) =>
     a.map((k, i) => [k, b[i]]);
   return zip(a, b).every((pair) => pair[0] === pair[1]);
@@ -29,7 +47,7 @@ function equalKeys(a: Array<string>, b: Array<string>) {
 /**
  * API symbols that should be available to users upon module import.
  */
-function apiNilql() {
+function apiNilql(): Array<string> {
   return [
     "SecretKey",
     "ClusterKey",
@@ -59,6 +77,11 @@ const secretKeyForSumWithOneNode = await nilql.SecretKey.generate(
   { nodes: [{}] },
   { sum: true },
 );
+
+/**
+ * Seed used for tests confirming that key generation from seeds is consistent.
+ */
+const seed = "012345678901234567890123456789012345678901234567890123456789";
 
 /**
  * Tests of methods of cryptographic key classes.
@@ -126,6 +149,101 @@ describe("methods of cryptographic key classes", () => {
     const ciphertext = await nilql.encrypt(secretKey, plaintext);
     const decrypted = await nilql.decrypt(secretKeyLoaded, ciphertext);
     expect(decrypted).toEqual(plaintext);
+  });
+
+  test("generate key from seed for store operation with single node", async () => {
+    const secretKeyFromSeed = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { store: true },
+      seed,
+    );
+    expect(
+      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
+    ).toStrictEqual("TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=");
+
+    const secretKey = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { store: true },
+    );
+    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
+      "TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=",
+    );
+  });
+
+  test("generate key from seed for store operation with multiple nodes", async () => {
+    const secretKeyFromSeed = await nilql.SecretKey.generate(
+      { nodes: [{}, {}, {}] },
+      { store: true },
+      seed,
+    );
+    expect(
+      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
+    ).toStrictEqual("i4ZP5syVY2V6ZFboTey/S83j+7ufgrs4/kUB849/uAI=");
+
+    const secretKey = await nilql.SecretKey.generate(
+      { nodes: [{}, {}, {}] },
+      { store: true },
+    );
+    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
+      "i4ZP5syVY2V6ZFboTey/S83j+7ufgrs4/kUB849/uAI=",
+    );
+  });
+
+  test("generate key from seed for match operation with single node", async () => {
+    const secretKeyFromSeed = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { match: true },
+      seed,
+    );
+    expect(
+      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
+    ).toStrictEqual("M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=");
+
+    const secretKey = await nilql.SecretKey.generate(
+      { nodes: [{}] },
+      { match: true },
+    );
+    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
+      "M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=",
+    );
+  });
+
+  test("generate key from seed for match operation with multiple nodes", async () => {
+    const secretKeyFromSeed = await nilql.SecretKey.generate(
+      { nodes: [{}, {}, {}] },
+      { match: true },
+      seed,
+    );
+    expect(
+      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
+    ).toStrictEqual("M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=");
+
+    const secretKey = await nilql.SecretKey.generate(
+      { nodes: [{}, {}, {}] },
+      { match: true },
+    );
+    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
+      "M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=",
+    );
+  });
+
+  test("generate key from seed for sum operation with multiple nodes", async () => {
+    const secretKeyFromSeed = await nilql.SecretKey.generate(
+      { nodes: [{}, {}, {}] },
+      { sum: true },
+      seed,
+    );
+    expect(
+      await toHashBase64(secretKeyFromSeed.material as number),
+    ).toStrictEqual("voydliW+MzaYaaIs6ydwLyZdNyYclj+APB2BxNK+AKY=");
+
+    const secretKey = await nilql.SecretKey.generate(
+      { nodes: [{}, {}, {}] },
+      { sum: true },
+    );
+    expect(await toHashBase64(secretKey.material as number)).not.toEqual(
+      "voydliW+MzaYaaIs6ydwLyZdNyYclj+APB2BxNK+AKY=",
+    );
   });
 });
 

@@ -73,10 +73,37 @@ async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
- * Generate random byte sequence.
+ * Generate entries in an indexed sequence of seeds derived from a base seed.
  */
-async function _randomBytes(length: number): Promise<Uint8Array> {
+async function _seeds(seed: Uint8Array, index: bigint): Promise<Uint8Array> {
+  if (index < 0 || index >= 2n ** 64n) {
+    throw new RangeError("index must be a 64-bit unsigned integer value");
+  }
+
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigInt64LE(index, 0);
+  return await _sha512(_concat(seed, new Uint8Array(buffer)));
+}
+
+/**
+ * Generate random byte sequence (with optional seed).
+ */
+async function _randomBytes(
+  length: number,
+  seed: Uint8Array | null = null,
+): Promise<Uint8Array> {
   await sodium.ready;
+
+  if (seed !== null) {
+    let bytes = new Uint8Array();
+    const iterations: number =
+      Math.floor(length / 64) + (length % 64 > 0 ? 1 : 0);
+    for (let i = 0n; i < iterations; i++) {
+      bytes = _concat(bytes, await _seeds(seed, i));
+    }
+    return bytes.subarray(0, length);
+  }
+
   return sodium.randombytes_buf(length);
 }
 
@@ -86,6 +113,7 @@ async function _randomBytes(length: number): Promise<Uint8Array> {
 async function _randomInteger(
   minimum: bigint,
   maximum: bigint,
+  seed: Uint8Array | null = null,
 ): Promise<bigint> {
   if (minimum < 0 || minimum > 1) {
     throw new RangeError("minimum must be 0 or 1");
@@ -99,8 +127,13 @@ async function _randomInteger(
 
   const range = maximum - minimum;
   let integer = null;
+  let index = 0n;
   while (integer === null || integer > range) {
-    const uint8Array = await _randomBytes(8);
+    const uint8Array = await _randomBytes(
+      8,
+      seed !== null ? await _seeds(seed, index) : null,
+    );
+    index++;
 
     uint8Array[4] &= 0b00000001;
     uint8Array[5] &= 0b00000000;
@@ -216,8 +249,17 @@ class SecretKey {
   public static async generate(
     cluster: Cluster,
     operations: Operations,
+    seed: Uint8Array | Buffer | string | null = null,
   ): Promise<SecretKey> {
     await sodium.ready;
+
+    // Normalize type of seed argument.
+    const seedBytes: Uint8Array | null =
+      seed === null
+        ? null
+        : typeof seed === "string"
+          ? new TextEncoder().encode(seed)
+          : new Uint8Array(seed);
 
     const secretKey = new SecretKey(cluster, operations);
 
@@ -225,25 +267,37 @@ class SecretKey {
       if (secretKey.cluster.nodes.length === 1) {
         secretKey.material = await _randomBytes(
           sodium.crypto_secretbox_KEYBYTES,
+          seedBytes,
         );
       } else {
         secretKey.material = await _randomBytes(
           _PLAINTEXT_STRING_BUFFER_LEN_MAX,
+          seedBytes,
         );
       }
     }
 
     if (secretKey.operations.match) {
-      secretKey.material = await _randomBytes(64); // Salt for hashing.
+      secretKey.material = await _randomBytes(64, seedBytes); // Salt for hashing.
     }
 
     if (secretKey.operations.sum) {
       if (secretKey.cluster.nodes.length === 1) {
+        if (seed !== null) {
+          throw Error(
+            "seed-based derivation of summation-compatible keys " +
+              "is not supported for single-node clusters",
+          );
+        }
         const { privateKey } = await paillierBigint.generateRandomKeys(2048);
         secretKey.material = privateKey;
       } else {
         secretKey.material = Number(
-          await _randomInteger(1n, _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n),
+          await _randomInteger(
+            1n,
+            _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
+            seedBytes,
+          ),
         );
       }
     }
