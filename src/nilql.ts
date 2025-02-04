@@ -837,6 +837,7 @@ async function decrypt(
  * whenever possible.
  */
 function allot(document: object): object[] {
+  // Values and `null` are base cases.
   if (
     typeof document === "number" ||
     typeof document === "boolean" ||

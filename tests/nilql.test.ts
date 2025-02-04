@@ -928,13 +928,14 @@ describe("end-to-end workflows involving share allotment and unification", () =>
   });
 
   test("allotment and unification of objects with nested arrays of shares for a multi-node cluster", async () => {
-    const data: { [k: string]: object } = {
+    const data: { [k: string]: object | null } = {
       a: [1n, [2n, 3n]],
       b: [4n, [5n, 6n]],
+      c: null,
     };
     const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
     const encrypted: { [k: string]: object } = {};
-    for (const key in data) {
+    for (const key of ["a", "b"]) {
       encrypted[key] = {
         $allot: [
           await nilql.encrypt(secretKey, (data[key] as Array<bigint>)[0]),
@@ -951,6 +952,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
         ],
       };
     }
+    encrypted["c"] = null;
     const shares = nilql.allot(encrypted) as Array<{
       [key: string]: string | object;
     }>;
