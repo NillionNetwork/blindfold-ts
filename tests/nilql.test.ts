@@ -934,7 +934,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
       c: null,
     };
     const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
-    const encrypted: { [k: string]: object } = {};
+    const encrypted: { [k: string]: object | null } = {};
     for (const key of ["a", "b"]) {
       encrypted[key] = {
         $allot: [
@@ -952,7 +952,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
         ],
       };
     }
-    encrypted["c"] = null;
+    encrypted.c = null;
     const shares = nilql.allot(encrypted) as Array<{
       [key: string]: string | object;
     }>;
