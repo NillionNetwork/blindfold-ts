@@ -840,7 +840,8 @@ function allot(document: object): object[] {
   if (
     typeof document === "number" ||
     typeof document === "boolean" ||
-    typeof document === "string"
+    typeof document === "string" ||
+    document === null
   ) {
     return [document];
   }
@@ -947,7 +948,9 @@ function allot(document: object): object[] {
     return shares;
   }
 
-  throw new TypeError("number, boolean, string, array, or object expected");
+  throw new TypeError(
+    "number, boolean, string, array, null, or object expected",
+  );
 }
 
 /**
