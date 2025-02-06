@@ -36,7 +36,7 @@
     "install-hooks": "lefthook install"
   },
   "engines": {
-    "node": ">=23"
+    "node": ">=20"
   },
   "dependencies": {
     "libsodium-wrappers-sumo": "^0.7.15",
