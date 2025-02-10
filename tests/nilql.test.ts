@@ -18,20 +18,36 @@ function toJSON(o: object): string {
 }
 
 /**
+ * Concatenate two `Uint8Array` instances.
+ */
+function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const c = new Uint8Array(a.length + b.length);
+  c.set(a);
+  c.set(b, a.length);
+  return c;
+}
+
+/**
  * Helper function for converting a large binary output from a test into a
  * short hash.
  */
-async function toHashBase64(output: Uint8Array | number): Promise<string> {
-  let value = output;
+async function toHashBase64(
+  output: Uint8Array | Array<number>,
+): Promise<string> {
+  let uint8Array: Uint8Array;
 
-  if (typeof value === "number") {
-    const buffer = Buffer.alloc(8);
-    buffer.writeBigInt64LE(BigInt(value), 0);
-    value = new Uint8Array(buffer);
+  if (Array.isArray(output) && output.every((n) => typeof n === "number")) {
+    const buffer = Buffer.alloc(8 * output.length);
+    for (let i = 0; i < output.length; i++) {
+      buffer.writeBigInt64LE(BigInt(output[i]), i * 8);
+    }
+    uint8Array = new Uint8Array(buffer);
+  } else {
+    uint8Array = output as Uint8Array;
   }
 
   return Buffer.from(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", value)),
+    new Uint8Array(await crypto.subtle.digest("SHA-256", uint8Array)),
   ).toString("base64");
 }
 
@@ -192,14 +208,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("i4ZP5syVY2V6ZFboTey/S83j+7ufgrs4/kUB849/uAI=");
+    ).toStrictEqual("TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { store: true },
     );
     expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "i4ZP5syVY2V6ZFboTey/S83j+7ufgrs4/kUB849/uAI=",
+      "TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=",
     );
   });
 
@@ -248,15 +264,15 @@ describe("methods of cryptographic key classes", () => {
       seed,
     );
     expect(
-      await toHashBase64(secretKeyFromSeed.material as number),
-    ).toStrictEqual("voydliW+MzaYaaIs6ydwLyZdNyYclj+APB2BxNK+AKY=");
+      await toHashBase64(secretKeyFromSeed.material as number[]),
+    ).toStrictEqual("uh5uhif06rquRHY4kbrL/31JY7SV1uj6nXSqSUfvLLg=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
     );
-    expect(await toHashBase64(secretKey.material as number)).not.toEqual(
-      "voydliW+MzaYaaIs6ydwLyZdNyYclj+APB2BxNK+AKY=",
+    expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
+      "uh5uhif06rquRHY4kbrL/31JY7SV1uj6nXSqSUfvLLg=",
     );
   });
 });
@@ -273,7 +289,7 @@ describe("errors involving methods of cryptographic key classes", () => {
       );
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError("secret key must enable exactly one operation"),
+        TypeError("operation specification must enable exactly one operation"),
       );
     }
   });
@@ -659,7 +675,7 @@ describe("errors involving encryption and decryption functions", () => {
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "plaintext to encrypt for sum operation must be number or bigint",
+          "plaintext to encrypt for sum operation must be integer number or bigint",
         ),
       );
     }
@@ -745,7 +761,9 @@ describe("errors involving encryption and decryption functions", () => {
       await nilql.decrypt(secretKeyAlt, ciphertext);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError("ciphertext cannot be decrypted using supplied secret key"),
+        TypeError(
+          "cannot decrypt the supplied ciphertext using the supplied key",
+        ),
       );
     }
   });
@@ -763,7 +781,9 @@ describe("errors involving encryption and decryption functions", () => {
       await nilql.decrypt(secretKeyAlt, ciphertext);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError("ciphertext cannot be decrypted using supplied secret key"),
+        TypeError(
+          "cannot decrypt the supplied ciphertext using the supplied key",
+        ),
       );
     }
   });
