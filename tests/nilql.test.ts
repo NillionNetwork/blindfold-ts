@@ -490,6 +490,17 @@ describe("encryption and decryption functions", () => {
         ciphertextFromString,
       )) as string;
       expect(decryptedFromString).toEqual(plaintextString);
+
+      const plaintextBinary = new Uint8Array([1, 2, 3]);
+      const ciphertextFromBinary = await nilql.encrypt(
+        secretKey,
+        plaintextBinary,
+      );
+      const decryptedFromBinary = (await nilql.decrypt(
+        secretKey,
+        ciphertextFromBinary,
+      )) as Uint8Array;
+      expect(decryptedFromBinary).toEqual(plaintextBinary);
     });
 
     test(`encryption of number for match operation (${cluster.nodes.length})`, async () => {
@@ -523,6 +534,26 @@ describe("encryption and decryption functions", () => {
       const plaintextOne = "ABC";
       const plaintextTwo = "ABC";
       const plaintextThree = "abc";
+      const ciphertextOne = await nilql.encrypt(secKeyOne, plaintextOne);
+      const ciphertextTwo = await nilql.encrypt(secKeyOne, plaintextTwo);
+      const ciphertextThree = await nilql.encrypt(secKeyOne, plaintextThree);
+      const ciphertextFour = await nilql.encrypt(secKeyTwo, plaintextThree);
+      expect(ciphertextTwo).toEqual(ciphertextOne);
+      expect(ciphertextThree).not.toEqual(ciphertextOne);
+      expect(ciphertextFour).not.toEqual(ciphertextThree);
+    });
+
+    test("encryption of binary data for match operation", async () => {
+      const secKeyOne = await nilql.SecretKey.generate(cluster, {
+        match: true,
+      });
+      const secKeyTwo = await nilql.SecretKey.generate(cluster, {
+        match: true,
+      });
+
+      const plaintextOne = new Uint8Array([1, 2, 3]);
+      const plaintextTwo = new Uint8Array([1, 2, 3]);
+      const plaintextThree = new Uint8Array([4, 5, 6, 7, 8, 9]);
       const ciphertextOne = await nilql.encrypt(secKeyOne, plaintextOne);
       const ciphertextTwo = await nilql.encrypt(secKeyOne, plaintextTwo);
       const ciphertextThree = await nilql.encrypt(secKeyOne, plaintextThree);
@@ -637,7 +668,7 @@ describe("errors involving encryption and decryption functions", () => {
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "string plaintext must be possible to encode in 4096 bytes or fewer",
+          "plaintext must be possible to encode in 4096 bytes or fewer",
         ),
       );
     }
@@ -660,7 +691,7 @@ describe("errors involving encryption and decryption functions", () => {
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "string plaintext must be possible to encode in 4096 bytes or fewer",
+          "plaintext must be possible to encode in 4096 bytes or fewer",
         ),
       );
     }
@@ -839,7 +870,7 @@ describe("end-to-end workflows involving encryption/decryption", () => {
               });
         const ciphertext = await nilql.encrypt(secretKey, number);
         const decrypted = await nilql.decrypt(secretKey, ciphertext);
-        expect(BigInt(decrypted)).toEqual(BigInt(number));
+        expect(BigInt(decrypted as bigint)).toEqual(BigInt(number));
       });
     }
   }
@@ -850,7 +881,7 @@ describe("end-to-end workflows involving encryption/decryption", () => {
       const publicKey = await nilql.PublicKey.generate(secretKey);
       const ciphertext = await nilql.encrypt(publicKey, number);
       const decrypted = await nilql.decrypt(secretKey, ciphertext);
-      expect(BigInt(decrypted)).toEqual(BigInt(number));
+      expect(BigInt(decrypted as bigint)).toEqual(BigInt(number));
     });
   }
 });
@@ -873,7 +904,7 @@ describe("end-to-end workflows involving secure computation", () => {
       (c0 + c1 + c2) % (2 ** 32 + 15),
     ];
     const decrypted = await nilql.decrypt(secretKey, [a3, b3, c3]);
-    expect(BigInt(decrypted)).toEqual(BigInt(123 + 456 + 789));
+    expect(BigInt(decrypted as bigint)).toEqual(BigInt(123 + 456 + 789));
   });
 });
 

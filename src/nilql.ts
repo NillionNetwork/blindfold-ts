@@ -165,11 +165,11 @@ function _unpack(s: string): Uint8Array {
 }
 
 /**
- * Encode an integer or string as a byte array. The encoding includes
- * information about the type of the value in the first byte (to enable
+ * Encode an integer, string, or binary plaintext as a byte array. The encoding
+ * includes information about the type of the value in the first byte (to enable
  * decoding without any additional context).
  */
-function _encode(value: bigint | string): Uint8Array {
+function _encode(value: bigint | string | Uint8Array): Uint8Array {
   let bytes: Uint8Array;
 
   // Encode signed big integer.
@@ -178,10 +178,12 @@ function _encode(value: bigint | string): Uint8Array {
     buffer[0] = 0; // First byte indicates encoded value is a 32-bit signed integer.
     buffer.writeBigInt64LE(value, 1);
     bytes = new Uint8Array(buffer);
+  } else if ((value as object) instanceof Uint8Array) {
+    const byte = new Uint8Array([2]); // Encoded value is binary data.
+    bytes = _concat(byte, value as Uint8Array);
   } else {
-    bytes = new TextEncoder().encode(value);
-    const byte = new Uint8Array(1);
-    byte[0] = 1; // First byte indicates encoded value is a UTF-8 string.
+    bytes = new TextEncoder().encode(value as string);
+    const byte = new Uint8Array([1]); // Encoded value is a UTF-8 string.
     bytes = _concat(byte, bytes);
   }
 
@@ -189,14 +191,20 @@ function _encode(value: bigint | string): Uint8Array {
 }
 
 /**
- * Decode a byte array back into an integer or string value.
+ * Decode a byte array back into an integer, string, or binary plaintext.
  */
-function _decode(bytes: Uint8Array): bigint | string {
+function _decode(bytes: Uint8Array): bigint | string | Uint8Array {
   if (bytes[0] === 0) {
     // Indicates encoded value is a 32-bit signed integer.
     return Buffer.from(bytes).readBigInt64LE(1);
   }
-  // Indicates encoded value is a UTF-8 string.
+
+  if (bytes[0] === 2) {
+    // Indicates encoded value is binary data.
+    return new Uint8Array(bytes.subarray(1));
+  }
+
+  // Encoded value must be a UTF-8 string.
   const decoder = new TextDecoder("utf-8");
   return decoder.decode(Buffer.from(bytes.subarray(1)));
 }
@@ -568,7 +576,7 @@ class PublicKey {
  */
 async function encrypt(
   key: PublicKey | SecretKey,
-  plaintext: number | bigint | string,
+  plaintext: number | bigint | string | Uint8Array,
 ): Promise<string | string[] | number[]> {
   await sodium.ready;
 
@@ -599,13 +607,13 @@ async function encrypt(
       );
     }
   } else {
-    // Encode a string plaintext.
+    // Encode a string or binary plaintext.
     buffer = Buffer.from(_encode(plaintext));
 
     if (buffer.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX) {
       const len = _PLAINTEXT_STRING_BUFFER_LEN_MAX;
       throw new TypeError(
-        `string plaintext must be possible to encode in ${len} bytes or fewer`,
+        `plaintext must be possible to encode in ${len} bytes or fewer`,
       );
     }
   }
@@ -742,7 +750,7 @@ async function encrypt(
 async function decrypt(
   secretKey: SecretKey,
   ciphertext: string | string[] | number[],
-): Promise<bigint | string> {
+): Promise<bigint | string | Uint8Array> {
   await sodium.ready;
 
   const error = new TypeError(
