@@ -888,7 +888,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
     const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
     const encrypted = [];
     for (let i = 0; i < data.length; i++) {
-      encrypted.push({ $allot: await nilql.encrypt(secretKey, data[i]) });
+      encrypted.push({ "%allot": await nilql.encrypt(secretKey, data[i]) });
     }
     const shares = nilql.allot(encrypted) as Array<Array<object>>;
     expect(shares.length).toEqual(3);
@@ -909,7 +909,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
     const secretKey = await nilql.SecretKey.generate(cluster, { store: true });
     const encrypted: { [k: string]: object } = {};
     for (const key in data) {
-      encrypted[key] = { $allot: await nilql.encrypt(secretKey, data[key]) };
+      encrypted[key] = { "%allot": await nilql.encrypt(secretKey, data[key]) };
     }
     const shares = nilql.allot(encrypted) as Array<Array<object>>;
     expect(shares.length).toEqual(3);
@@ -937,7 +937,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
       encrypted[key] = [
         data[key][0],
         data[key][1],
-        { $allot: await nilql.encrypt(secretKey, data[key][2]) },
+        { "%allot": await nilql.encrypt(secretKey, data[key][2]) },
       ];
     }
     const shares = nilql.allot(encrypted) as Array<Array<object>>;
@@ -957,7 +957,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
     const encrypted: { [k: string]: object | null } = {};
     for (const key of ["a", "b"]) {
       encrypted[key] = {
-        $allot: [
+        "%allot": [
           await nilql.encrypt(secretKey, (data[key] as Array<bigint>)[0]),
           [
             await nilql.encrypt(
