@@ -3,7 +3,6 @@
  * and replies.
  */
 import { hkdf } from "node:crypto";
-
 import * as bcu from "bigint-crypto-utils";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
@@ -298,7 +297,7 @@ class SecretKey {
               await _randomInteger(
                 1n,
                 _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
-                await _randomBytes(8, seedBytes, indexBytes),
+                await _randomBytes(64, seedBytes, indexBytes),
               ),
             ),
           );

@@ -265,14 +265,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as number[]),
-    ).toStrictEqual("FF/Dzm/evptpKZrj3Y1u4bX/EHQKNIhtkh8vrLzdh+A=");
+    ).toStrictEqual("L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
     );
     expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
-      "FF/Dzm/evptpKZrj3Y1u4bX/EHQKNIhtkh8vrLzdh+A=",
+      "L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=",
     );
   });
 });
