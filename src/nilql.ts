@@ -2,6 +2,7 @@
  * TypeScript library for working with encrypted data within nilDB queries
  * and replies.
  */
+import { hkdf } from "node:crypto";
 import * as bcu from "bigint-crypto-utils";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
@@ -73,36 +74,23 @@ async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
- * Return entries in an indexed sequence of seeds derived from a base seed.
- */
-async function _seeds(seed: Uint8Array, index: bigint): Promise<Uint8Array> {
-  if (index < 0 || index >= 2n ** 64n) {
-    throw new RangeError("index must be a 64-bit unsigned integer value");
-  }
-
-  const buffer = Buffer.alloc(8);
-  buffer.writeBigInt64LE(index, 0);
-  return await _sha512(_concat(seed, new Uint8Array(buffer)));
-}
-
-/**
  * Return a random byte sequence of the specified length (using the seed if one
  * is supplied).
  */
 async function _randomBytes(
   length: number,
   seed: Uint8Array | null = null,
+  salt: Uint8Array | null = null,
 ): Promise<Uint8Array> {
   await sodium.ready;
 
   if (seed !== null) {
-    let bytes = new Uint8Array();
-    const iterations: number =
-      Math.floor(length / 64) + (length % 64 > 0 ? 1 : 0);
-    for (let i = 0n; i < iterations; i++) {
-      bytes = _concat(bytes, await _seeds(seed, i));
-    }
-    return bytes.subarray(0, length);
+    return new Promise<Uint8Array>((resolve, reject) => {
+      hkdf("sha512", seed, salt ?? "", "", length, (err, derivedKey) => {
+        if (err) reject(err);
+        else resolve(new Uint8Array(derivedKey));
+      });
+    });
   }
 
   return sodium.randombytes_buf(length);
@@ -131,10 +119,9 @@ async function _randomInteger(
   let integer = null;
   let index = 0n;
   while (integer === null || integer > range) {
-    const uint8Array = await _randomBytes(
-      8,
-      seed !== null ? await _seeds(seed, index) : null,
-    );
+    const index_bytes = Buffer.alloc(8);
+    index_bytes.writeBigInt64LE(index, 0);
+    const uint8Array = await _randomBytes(8, seed, index_bytes);
     index++;
 
     uint8Array[4] &= 0b00000001;
@@ -303,14 +290,14 @@ class SecretKey {
         // Distinct multiplicative mask for each additive share.
         secretKey.material = [];
         for (let i = 0n; i < secretKey.cluster.nodes.length; i++) {
-          const seedIteration =
-            seedBytes === null ? null : await _seeds(seedBytes, i);
+          const indexBytes = Buffer.alloc(8);
+          indexBytes.writeBigInt64LE(i, 0);
           (secretKey.material as Array<number>).push(
             Number(
               await _randomInteger(
                 1n,
                 _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
-                seedIteration,
+                await _randomBytes(64, seedBytes, indexBytes),
               ),
             ),
           );

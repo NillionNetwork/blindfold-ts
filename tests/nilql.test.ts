@@ -189,14 +189,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=");
+    ).toStrictEqual("2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}] },
       { store: true },
     );
     expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=",
+      "2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=",
     );
   });
 
@@ -208,14 +208,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=");
+    ).toStrictEqual("2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { store: true },
     );
     expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "TVFhJJ32+eh+yaYL1Dhcw7Z+ykY4N1cKDJXDxdS92vI=",
+      "2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=",
     );
   });
 
@@ -227,14 +227,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=");
+    ).toStrictEqual("qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}] },
       { match: true },
     );
     expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=",
+      "qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=",
     );
   });
 
@@ -246,14 +246,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=");
+    ).toStrictEqual("qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { match: true },
     );
     expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "M4qqWosTwaBvPMEvUDWKg/RJA3+18+mv/X5Zlj21NhY=",
+      "qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=",
     );
   });
 
@@ -265,14 +265,14 @@ describe("methods of cryptographic key classes", () => {
     );
     expect(
       await toHashBase64(secretKeyFromSeed.material as number[]),
-    ).toStrictEqual("uh5uhif06rquRHY4kbrL/31JY7SV1uj6nXSqSUfvLLg=");
+    ).toStrictEqual("L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=");
 
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
     );
     expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
-      "uh5uhif06rquRHY4kbrL/31JY7SV1uj6nXSqSUfvLLg=",
+      "L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=",
     );
   });
 });
