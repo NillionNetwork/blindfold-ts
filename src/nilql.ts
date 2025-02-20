@@ -864,8 +864,8 @@ async function decrypt(
 function allot(document: object): object[] {
   // Values and `null` are base cases.
   if (
-    typeof document === "number" ||
     typeof document === "boolean" ||
+    typeof document === "number" ||
     typeof document === "string" ||
     document === null
   ) {
@@ -975,7 +975,7 @@ function allot(document: object): object[] {
   }
 
   throw new TypeError(
-    "number, boolean, string, array, null, or object expected",
+    "boolean, number, string, array, null, or object expected",
   );
 }
 
