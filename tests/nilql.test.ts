@@ -181,11 +181,9 @@ describe("methods of cryptographic key classes", () => {
     expect(decrypted).toEqual(plaintext);
   });
 
-  test("generate, dump, JSONify, and load secret key for redundancy operation with multiple nodes", async () => {
+  test("generate, dump, JSONify, and load secret key for sum operation with multiple nodes and threshold", async () => {
     const cluster = { nodes: [{}, {}, {}] };
-    const secretKey = await nilql.SecretKey.generate(cluster, {
-      redundancy: true,
-    });
+    const secretKey = await nilql.SecretKey.generate(cluster, { sum: true }, 3);
 
     const secretKeyObject = JSON.parse(JSON.stringify(secretKey.dump()));
     const secretKeyLoaded = nilql.SecretKey.load(secretKeyObject);
@@ -196,11 +194,13 @@ describe("methods of cryptographic key classes", () => {
     expect(decrypted).toEqual(plaintext);
   });
 
-  test("generate, dump, JSONify, and load cluster key for redundancy operation with multiple nodes", async () => {
+  test("generate, dump, JSONify, and load cluster key for sum operation with multiple nodes and threshold", async () => {
     const cluster = { nodes: [{}, {}, {}] };
-    const clusterKey = await nilql.ClusterKey.generate(cluster, {
-      redundancy: true,
-    });
+    const clusterKey = await nilql.ClusterKey.generate(
+      cluster,
+      { sum: true },
+      3,
+    );
 
     const clusterKeyObject = JSON.parse(JSON.stringify(clusterKey.dump()));
     const clusterKeyLoaded = nilql.ClusterKey.load(clusterKeyObject);
@@ -216,6 +216,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await nilql.SecretKey.generate(
       { nodes: [{}] },
       { store: true },
+      null,
       seed,
     );
     expect(
@@ -235,6 +236,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { store: true },
+      null,
       seed,
     );
     expect(
@@ -254,6 +256,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await nilql.SecretKey.generate(
       { nodes: [{}] },
       { match: true },
+      null,
       seed,
     );
     expect(
@@ -273,6 +276,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { match: true },
+      null,
       seed,
     );
     expect(
@@ -292,6 +296,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
+      null,
       seed,
     );
     expect(
@@ -308,10 +313,11 @@ describe("methods of cryptographic key classes", () => {
   });
 });
 
-test("generate key from seed for redundancy operation with multiple nodes", async () => {
+test("generate key from seed for sum operation with multiple nodes and threshold", async () => {
   const secretKeyFromSeed = await nilql.SecretKey.generate(
     { nodes: [{}, {}, {}] },
-    { redundancy: true },
+    { sum: true },
+    2,
     seed,
   );
   expect(
@@ -320,7 +326,8 @@ test("generate key from seed for redundancy operation with multiple nodes", asyn
 
   const secretKey = await nilql.SecretKey.generate(
     { nodes: [{}, {}, {}] },
-    { redundancy: true },
+    { sum: true },
+    2,
   );
   expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
     "L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=",
@@ -671,10 +678,11 @@ describe("encryption and decryption functions", () => {
     expect(decryptedFromBigInt).toEqual(plaintextBigInt);
   });
 
-  test("encryption and decryption for reduncancy operation with multiple nodes", async () => {
+  test("encryption and decryption for sum operation with multiple nodes and threshold", async () => {
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
-      { redundancy: true },
+      { sum: true },
+      3,
     );
 
     const plaintextNumber = 123;
@@ -700,10 +708,11 @@ describe("encryption and decryption functions", () => {
     expect(decryptedFromBigInt).toEqual(plaintextBigInt);
   });
 
-  test("encryption and decryption for reduncancy operation with multiple nodes one failure", async () => {
+  test("encryption and decryption for sum operation with multiple nodes and no failure", async () => {
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] },
-      { redundancy: true },
+      { sum: true },
+      3,
     );
 
     const plaintextNumber = 123;
@@ -729,10 +738,11 @@ describe("encryption and decryption functions", () => {
     expect(decryptedFromBigInt).toEqual(plaintextBigInt);
   });
 
-  test("encryption and decryption for redundancy operation with multiple nodes and one failure", async () => {
+  test("encryption and decryption for sum operation with multiple nodes and one failure", async () => {
     const secretKey = await nilql.SecretKey.generate(
       { nodes: [{}, {}, {}] }, // 3 nodes
-      { redundancy: true },
+      { sum: true },
+      2,
     );
 
     const plaintextNumber = 123;
@@ -790,11 +800,13 @@ describe("portable representation of ciphertexts", () => {
     expect(decrypted).toEqual(plaintext);
   });
 
-  test("secret share representation for redundancy operation with multiple nodes", async () => {
+  test("secret share representation for sum operation with multiple nodes and threshold", async () => {
     const cluster = { nodes: [{}, {}, {}] };
-    const clusterKey = await nilql.ClusterKey.generate(cluster, {
-      redundancy: true,
-    });
+    const clusterKey = await nilql.ClusterKey.generate(
+      cluster,
+      { sum: true },
+      3,
+    );
     const plaintext = BigInt(123);
     const ciphertext = [
       [1, 1382717699],
@@ -1071,10 +1083,11 @@ describe("end-to-end workflows involving secure computation", () => {
  * Tests consisting of end-to-end workflows involving secure computation.
  */
 describe("end-to-end workflows involving secure computation", () => {
-  test("end-to-end workflow for secure summation with a multi-node cluster and redundancy", async () => {
+  test("end-to-end workflow for secure summation with a multi-node cluster and threshold", async () => {
     const secretKey = await nilql.ClusterKey.generate(
       { nodes: [{}, {}, {}] },
-      { redundancy: true },
+      { sum: true },
+      3,
     );
     const [a0, b0, c0] = (await nilql.encrypt(secretKey, 123)) as Array<
       [number, number]
