@@ -6,8 +6,6 @@ import { hkdf } from "node:crypto";
 import * as bcu from "bigint-crypto-utils";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
-// import * as interpolatingPolynomial from "interpolating-polynomial";
-// import linearInterpolator from "linear-interpolator";
 
 /**
  * Minimum plaintext 32-bit signed integer value that can be encrypted.
@@ -28,11 +26,6 @@ const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = 2n ** 32n + 15n;
  * Maximum length of plaintext string values that can be encrypted.
  */
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
-
-/**
- * Minimum number of shares required to reconstruct a Shamir secret.
- */
-const _SHAMIRS_MINIMUM_SHARES_FOR_RECONSTRUCTION = 2;
 
 /**
  * Mathematically standard modulus operator.
@@ -185,12 +178,6 @@ async function _shamirsShares(
 }
 
 function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
-  if (shares.length < _SHAMIRS_MINIMUM_SHARES_FOR_RECONSTRUCTION) {
-    throw new Error(
-      `At least ${_SHAMIRS_MINIMUM_SHARES_FOR_RECONSTRUCTION} shares are required.`,
-    );
-  }
-
   let secret = 0n;
 
   for (let i = 0; i < shares.length; i++) {
@@ -309,7 +296,6 @@ interface Operations {
   store?: boolean;
   match?: boolean;
   sum?: boolean;
-  redundancy?: boolean;
 }
 
 /**
@@ -319,6 +305,7 @@ class SecretKey {
   material?: object | number;
   cluster: Cluster;
   operations: Operations;
+  threshold?: number;
 
   protected constructor(cluster: Cluster, operations: Operations) {
     if (cluster.nodes === undefined || cluster.nodes.length < 1) {
@@ -329,10 +316,7 @@ class SecretKey {
 
     if (
       Object.keys(operations).length !== 1 ||
-      (!operations.store &&
-        !operations.match &&
-        !operations.sum &&
-        !operations.redundancy)
+      (!operations.store && !operations.match && !operations.sum)
     ) {
       throw new TypeError(
         "operation specification must enable exactly one operation",
@@ -351,6 +335,7 @@ class SecretKey {
   public static async generate(
     cluster: Cluster,
     operations: Operations,
+    threshold: number | null = null,
     seed: Uint8Array | Buffer | string | null = null,
   ): Promise<SecretKey> {
     await sodium.ready;
@@ -408,34 +393,40 @@ class SecretKey {
       }
     }
 
-    if (secretKey.operations.redundancy) {
-      if (secretKey.cluster.nodes.length === 1) {
-        throw Error("redundancy is not supported for single-node clusters");
-      }
-      // Distinct multiplicative mask for each additive share.
-      secretKey.material = [];
-      for (let i = 0n; i < secretKey.cluster.nodes.length; i++) {
-        const indexBytes = Buffer.alloc(8);
-        indexBytes.writeBigInt64LE(i, 0);
-        (secretKey.material as Array<number>).push(
-          Number(
-            await _randomInteger(
-              1n,
-              _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
-              await _randomBytes(64, seedBytes, indexBytes),
-            ),
-          ),
+    if (threshold !== null) {
+      if (
+        !Number.isInteger(threshold) ||
+        threshold < 1 ||
+        threshold > cluster.nodes.length
+      ) {
+        throw new Error(
+          "threshold must be a positive integer not larger than the cluster size",
         );
       }
+      if (!operations.sum) {
+        throw new Error("thresholds are only supported for the sum operation");
+      }
+      secretKey.threshold = threshold;
     }
+
     return secretKey;
   }
 
   /**
    * Return a JSON-compatible object representation of this key instance.
    */
-  public dump(): object {
-    const object = {
+  public dump(): {
+    material: object | number[] | string;
+    cluster: Cluster;
+    operations: Operations;
+    threshold?: number;
+  } {
+    const object: {
+      material: object | number[] | string;
+      cluster: Cluster;
+      operations: Operations;
+      threshold?: number;
+    } = {
       material: {},
       cluster: this.cluster,
       operations: this.operations,
@@ -461,6 +452,10 @@ class SecretKey {
         l: privateKey.lambda.toString(),
         m: privateKey.mu.toString(),
       };
+    }
+
+    if (this.threshold !== undefined) {
+      object.threshold = this.threshold;
     }
 
     return object;
@@ -528,6 +523,10 @@ class SecretKey {
       );
     }
 
+    if ("threshold" in object) {
+      secretKey.threshold = object.threshold as number;
+    }
+
     return secretKey;
   }
 }
@@ -536,7 +535,11 @@ class SecretKey {
  * Data structure for representing all categories of cluster key instances.
  */
 class ClusterKey extends SecretKey {
-  protected constructor(cluster: Cluster, operations: Operations) {
+  protected constructor(
+    cluster: Cluster,
+    operations: Operations,
+    threshold: number | undefined = undefined,
+  ) {
     super(cluster, operations);
     if (cluster.nodes.length < 2) {
       throw new TypeError(
@@ -549,6 +552,7 @@ class ClusterKey extends SecretKey {
 
     this.cluster = cluster;
     this.operations = operations;
+    this.threshold = threshold;
   }
 
   /**
@@ -558,17 +562,39 @@ class ClusterKey extends SecretKey {
   public static async generate(
     cluster: Cluster,
     operations: Operations,
+    threshold: number | undefined = undefined,
   ): Promise<ClusterKey> {
-    return new ClusterKey(cluster, operations);
+    if (threshold !== undefined) {
+      if (
+        !Number.isInteger(threshold) ||
+        threshold < 1 ||
+        threshold > cluster.nodes.length
+      ) {
+        throw new Error(
+          "threshold must be a positive integer not larger than the cluster size",
+        );
+      }
+      if (!operations.sum) {
+        throw new Error("thresholds are only supported for the sum operation");
+      }
+    }
+    return new ClusterKey(cluster, operations, threshold);
   }
 
   /**
    * Return a JSON-compatible object representation of this key instance.
    */
-  public dump(): object {
+  public dump(): {
+    material: object | number[] | string;
+    cluster: Cluster;
+    operations: Operations;
+    threshold?: number;
+  } {
     return {
+      material: {}, // ClusterKey does not use material, but it's required by the base class
       cluster: this.cluster,
       operations: this.operations,
+      threshold: this.threshold,
     };
   }
 
@@ -583,6 +609,7 @@ class ClusterKey extends SecretKey {
     return new ClusterKey(
       object.cluster as Cluster,
       object.operations as Operations,
+      "threshold" in object ? (object.threshold as number) : undefined,
     );
   }
 }
@@ -789,18 +816,8 @@ async function encrypt(
 
   // Encrypt an integer plaintext in a summation-compatible way.
   if (key.operations.sum) {
-    // Only 32-bit signed integer plaintexts are supported.
-    if (
-      !(typeof plaintext === "number" && Number.isInteger(plaintext)) &&
-      !(typeof plaintext === "bigint")
-    ) {
-      throw new TypeError(
-        "plaintext to encrypt for sum operation must be integer number or bigint",
-      );
-    }
-
-    // For single-node clusters, the Paillier cryptosystem is used.
     if (key.cluster.nodes.length === 1) {
+      // Single-node cluster logic
       // Extract public key from secret key if a secret key was supplied and rebuild the
       // public key object for the Paillier library.
       let paillierPublicKey: paillierBigint.PublicKey;
@@ -819,8 +836,34 @@ async function encrypt(
         .encrypt(bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN)
         .toString(16);
     }
+    if (key instanceof SecretKey && key.threshold !== undefined) {
+      // Shamir's secret sharing logic with masks
+      let shares = await _shamirsShares(
+        bigInt,
+        key.cluster.nodes.length,
+        key.threshold,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      );
 
-    // For multiple-node clusters, additive secret sharing is used.
+      // For multiple-node clusters, additive secret sharing is used.
+      const secretKey = key as SecretKey;
+      const masks: bigint[] =
+        "material" in secretKey
+          ? (secretKey.material as number[]).map(BigInt)
+          : secretKey.cluster.nodes.map((_) => 1n);
+
+      shares = shares.map(([x, y], i) => [
+        x,
+        _mod(y * masks[i], _SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+      ]);
+
+      return shares.map(([x, y]) => [Number(x), Number(y)]) as [
+        number,
+        number,
+      ][];
+    }
+
+    // Additive secret sharing logic
     const secretKey = key as SecretKey;
     const masks: bigint[] =
       "material" in secretKey
@@ -847,46 +890,6 @@ async function encrypt(
       ),
     );
     return shares.map(Number);
-  }
-
-  // Encrypt an integer plaintext in a summation-compatible way.
-  if (key.operations.redundancy) {
-    // Only 32-bit signed integer plaintexts are supported.
-    if (
-      !(typeof plaintext === "number" && Number.isInteger(plaintext)) &&
-      !(typeof plaintext === "bigint")
-    ) {
-      throw new TypeError(
-        "plaintext to encrypt for sum operation must be integer number or bigint",
-      );
-    }
-
-    if (key.cluster.nodes.length === 1) {
-      throw new TypeError(
-        "redundancy is not supported for single-node clusters",
-      );
-    }
-
-    let shares = await _shamirsShares(
-      BigInt(plaintext),
-      key.cluster.nodes.length,
-      _SHAMIRS_MINIMUM_SHARES_FOR_RECONSTRUCTION,
-      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-    );
-
-    // For multiple-node clusters, additive secret sharing is used.
-    const secretKey = key as SecretKey;
-    const masks: bigint[] =
-      "material" in secretKey
-        ? (secretKey.material as number[]).map(BigInt)
-        : secretKey.cluster.nodes.map((_) => 1n);
-
-    shares = shares.map(([x, y], i) => [
-      x,
-      _mod(y * masks[i], _SECRET_SHARED_SIGNED_INTEGER_MODULUS),
-    ]);
-
-    return shares.map(([x, y]) => [Number(x), Number(y)]) as [number, number][];
   }
 
   // The below should not occur unless the key's cluster or operations
@@ -936,7 +939,7 @@ async function decrypt(
 
     if (
       secretKey.cluster.nodes.length !== ciphertext.length &&
-      !secretKey.operations.redundancy
+      !secretKey.operations.sum
     ) {
       throw new TypeError(
         "secret key and ciphertext must have the same associated cluster size",
@@ -993,8 +996,45 @@ async function decrypt(
         _PLAINTEXT_SIGNED_INTEGER_MIN
       );
     }
+    if (secretKey.threshold !== undefined) {
+      // Shamir's secret sharing logic with masks
 
-    // For multiple-node clusters, additive secret sharing is used.
+      const inverseMasks: bigint[] =
+        "material" in secretKey
+          ? (secretKey.material as number[]).map((mask) => {
+              return bcu.modPow(
+                BigInt(mask),
+                _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
+                _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+              );
+            })
+          : secretKey.cluster.nodes.map((_) => 1n);
+
+      const shares: [bigint, bigint][] = (ciphertext as [number, number][]).map(
+        ([x, y], i) => [
+          BigInt(x),
+          _mod(
+            inverseMasks[x - 1] * BigInt(y),
+            _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+          ),
+        ],
+      );
+
+      let plaintext: bigint = _shamirsRecover(
+        shares,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      );
+
+      // Field elements in the "upper half" of the field represent negative
+      // integers.
+      if (plaintext > _PLAINTEXT_SIGNED_INTEGER_MAX) {
+        plaintext -= _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
+      }
+
+      return plaintext;
+    }
+
+    // Additive secret sharing logic
     const inverseMasks: bigint[] =
       "material" in secretKey
         ? (secretKey.material as number[]).map((mask) => {
@@ -1017,48 +1057,6 @@ async function decrypt(
         _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
       );
     }
-
-    // Field elements in the "upper half" of the field represent negative
-    // integers.
-    if (plaintext > _PLAINTEXT_SIGNED_INTEGER_MAX) {
-      plaintext -= _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
-    }
-
-    return plaintext;
-  }
-
-  // Decrypt a value that was encrypted in a summation-compatible way.
-  if (secretKey.operations.redundancy) {
-    if (secretKey.cluster.nodes.length === 1) {
-      throw new TypeError(
-        "redundancy is not supported for single-node clusters",
-      );
-    }
-
-    // For multiple-node clusters, additive secret sharing is used.
-    const inverseMasks: bigint[] =
-      "material" in secretKey
-        ? (secretKey.material as number[]).map((mask) => {
-            return bcu.modPow(
-              BigInt(mask),
-              _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
-              _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-            );
-          })
-        : secretKey.cluster.nodes.map((_) => 1n);
-    const shares: [bigint, bigint][] = (ciphertext as [number, number][]).map(
-      ([x, y], i) => [
-        BigInt(x),
-        _mod(
-          BigInt(y) * inverseMasks[x - 1],
-          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-        ),
-      ],
-    );
-    let plaintext: bigint = _shamirsRecover(
-      shares,
-      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-    );
 
     // Field elements in the "upper half" of the field represent negative
     // integers.
