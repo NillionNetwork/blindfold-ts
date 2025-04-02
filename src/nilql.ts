@@ -795,6 +795,8 @@ async function encrypt(
     let aggregate = Buffer.alloc(buffer.length, 0);
     for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
       let mask: Buffer<ArrayBufferLike>;
+      // If the plaintext length is more than the length of the seed, use the
+      // seed to generate the mask, otherwise, generate it directly.
       if (buffer.length > _SEED_LEN) {
         const seed = Buffer.from(sodium.randombytes_buf(_SEED_LEN));
         const rand = await _randomBytes(buffer.length, seed);
@@ -991,12 +993,18 @@ async function decrypt(
     // For multiple-node clusters, the plaintext is secret-shared using XOR
     // (with each share symmetrically encrypted in the case of a secret key).
     let shares = (ciphertext as string[]).map(_unpack).map(optionalDecrypt);
+
+    // We bring the true share first and leave the seeds last, or if everything
+    // is a share, the following lines don't do anything.
     const lens = shares.map((share) => share.length);
     const indices = lens.map((len, i) => i).sort((a, b) => lens[b] - lens[a]);
     shares = indices.map((i) => shares[i]);
+
     let buffer = Buffer.from(shares[0]);
     for (let i = 1; i < shares.length; i++) {
       let share = shares[i];
+      // If the share_ is not of same length as the first share, this means
+      // that it is a seed. So generate share from the seed.
       if (buffer.length !== share.length) {
         share = await _randomBytes(buffer.length, share);
       }
