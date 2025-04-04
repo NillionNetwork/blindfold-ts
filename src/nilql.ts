@@ -177,6 +177,9 @@ async function _shamirsShares(
   return points;
 }
 
+/**
+ * Recover the secret value from the supplied share instances.
+ */
 function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
   let secret = 0n;
 
@@ -198,6 +201,9 @@ function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
   return secret;
 }
 
+/**
+ * Adds two sets of shares pointwise, assuming they use the same indices.
+ */
 function shamirsAdd(
   shares1: [number, number][],
   shares2: [number, number][],
@@ -816,8 +822,8 @@ async function encrypt(
 
   // Encrypt an integer plaintext in a summation-compatible way.
   if (key.operations.sum) {
+    // For single-node clusters, the Paillier cryptosystem is used.
     if (key.cluster.nodes.length === 1) {
-      // Single-node cluster logic
       // Extract public key from secret key if a secret key was supplied and rebuild the
       // public key object for the Paillier library.
       let paillierPublicKey: paillierBigint.PublicKey;
@@ -836,60 +842,58 @@ async function encrypt(
         .encrypt(bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN)
         .toString(16);
     }
-    if (key instanceof SecretKey && key.threshold !== undefined) {
-      // Shamir's secret sharing logic with masks
-      let shares = await _shamirsShares(
-        bigInt,
-        key.cluster.nodes.length,
-        key.threshold,
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-      );
 
-      // For multiple-node clusters, additive secret sharing is used.
-      const secretKey = key as SecretKey;
+    // For multiple-node clusters and no threshold, additive secret sharing is used.
+    const keyMultipleNodes = key as SecretKey | ClusterKey;
+    if (keyMultipleNodes.threshold === undefined) {
       const masks: bigint[] =
-        "material" in secretKey
-          ? (secretKey.material as number[]).map(BigInt)
-          : secretKey.cluster.nodes.map((_) => 1n);
-
-      shares = shares.map(([x, y], i) => [
-        x,
-        _mod(y * masks[i], _SECRET_SHARED_SIGNED_INTEGER_MODULUS),
-      ]);
-
-      return shares.map(([x, y]) => [Number(x), Number(y)]) as [
-        number,
-        number,
-      ][];
-    }
-
-    // Additive secret sharing logic
-    const secretKey = key as SecretKey;
-    const masks: bigint[] =
-      "material" in secretKey
-        ? (secretKey.material as number[]).map(BigInt)
-        : secretKey.cluster.nodes.map((_) => 1n);
-    const shares: bigint[] = [];
-    let total = BigInt(0);
-    const quantity = key.cluster.nodes.length;
-    for (let i = 0; i < quantity - 1; i++) {
-      const share = await _randomInteger(
-        0n,
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
-      );
+        "material" in key
+          ? (key.material as number[]).map(BigInt)
+          : key.cluster.nodes.map((_) => 1n);
+      const shares: bigint[] = [];
+      let total = BigInt(0);
+      const quantity = keyMultipleNodes.cluster.nodes.length;
+      for (let i = 0; i < quantity - 1; i++) {
+        const share = await _randomInteger(
+          0n,
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 1n,
+        );
+        shares.push(
+          _mod(masks[i] * share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+        );
+        total = _mod(total + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
+      }
       shares.push(
-        _mod(masks[i] * share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+        _mod(
+          _mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS) *
+            BigInt(masks[quantity - 1]),
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        ),
       );
-      total = _mod(total + share, _SECRET_SHARED_SIGNED_INTEGER_MODULUS);
+
+      return shares.map(Number);
     }
-    shares.push(
-      _mod(
-        _mod(bigInt - total, _SECRET_SHARED_SIGNED_INTEGER_MODULUS) *
-          BigInt(masks[quantity - 1]),
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-      ),
+
+    // For multiple-node clusters and a threshold, Shamir's secret sharing is used.
+    let shares = await _shamirsShares(
+      bigInt,
+      keyMultipleNodes.cluster.nodes.length,
+      keyMultipleNodes.threshold,
+      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
     );
-    return shares.map(Number);
+
+    // For multiple-node clusters, additive secret sharing is used.
+    const masks: bigint[] =
+      "material" in key
+        ? (key.material as number[]).map(BigInt)
+        : key.cluster.nodes.map((_) => 1n);
+
+    shares = shares.map(([x, y], i) => [
+      x,
+      _mod(y * masks[i], _SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+    ]);
+
+    return shares.map(([x, y]) => [Number(x), Number(y)]) as [number, number][];
   }
 
   // The below should not occur unless the key's cluster or operations
@@ -996,9 +1000,9 @@ async function decrypt(
         _PLAINTEXT_SIGNED_INTEGER_MIN
       );
     }
-    if (secretKey.threshold !== undefined) {
-      // Shamir's secret sharing logic with masks
 
+    // For multiple-node clusters and no threshold, additive secret sharing is used.
+    if (secretKey.threshold === undefined) {
       const inverseMasks: bigint[] =
         "material" in secretKey
           ? (secretKey.material as number[]).map((mask) => {
@@ -1009,21 +1013,18 @@ async function decrypt(
               );
             })
           : secretKey.cluster.nodes.map((_) => 1n);
-
-      const shares: [bigint, bigint][] = (ciphertext as [number, number][]).map(
-        ([x, y], i) => [
-          BigInt(x),
-          _mod(
-            inverseMasks[x - 1] * BigInt(y),
-            _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-          ),
-        ],
-      );
-
-      let plaintext: bigint = _shamirsRecover(
-        shares,
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-      );
+      const shares = ciphertext as number[];
+      let plaintext = BigInt(0);
+      for (let i = 0; i < shares.length; i++) {
+        const share = _mod(
+          BigInt(shares[i]) * inverseMasks[i],
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        );
+        plaintext = _mod(
+          plaintext + share,
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        );
+      }
 
       // Field elements in the "upper half" of the field represent negative
       // integers.
@@ -1034,7 +1035,7 @@ async function decrypt(
       return plaintext;
     }
 
-    // Additive secret sharing logic
+    // For multiple-node clusters and a threshold, Shamir's secret sharing is used.
     const inverseMasks: bigint[] =
       "material" in secretKey
         ? (secretKey.material as number[]).map((mask) => {
@@ -1045,18 +1046,21 @@ async function decrypt(
             );
           })
         : secretKey.cluster.nodes.map((_) => 1n);
-    const shares = ciphertext as number[];
-    let plaintext = BigInt(0);
-    for (let i = 0; i < shares.length; i++) {
-      const share = _mod(
-        BigInt(shares[i]) * inverseMasks[i],
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-      );
-      plaintext = _mod(
-        plaintext + share,
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
-      );
-    }
+
+    const shares: [bigint, bigint][] = (ciphertext as [number, number][]).map(
+      ([x, y], i) => [
+        BigInt(x),
+        _mod(
+          inverseMasks[x - 1] * BigInt(y),
+          _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        ),
+      ],
+    );
+
+    let plaintext: bigint = _shamirsRecover(
+      shares,
+      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+    );
 
     // Field elements in the "upper half" of the field represent negative
     // integers.
