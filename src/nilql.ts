@@ -2,8 +2,8 @@
  * TypeScript library for working with encrypted data within nilDB queries
  * and replies.
  */
-import { hkdf } from "node:crypto";
 import * as bcu from "bigint-crypto-utils";
+import { createHmac } from "crypto-browserify";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
@@ -85,12 +85,12 @@ async function _randomBytes(
   await sodium.ready;
 
   if (seed !== null) {
-    return new Promise<Uint8Array>((resolve, reject) => {
-      hkdf("sha512", seed, salt ?? "", "", length, (err, derivedKey) => {
-        if (err) reject(err);
-        else resolve(new Uint8Array(derivedKey));
-      });
-    });
+    try {
+      const info = new Uint8Array(0); // Empty info string
+      return await hkdfDerive(seed, salt, info, length);
+    } catch (error) {
+      throw new Error(`Failed to derive key: ${error}`);
+    }
   }
 
   return sodium.randombytes_buf(length);
@@ -712,6 +712,33 @@ class PublicKey {
 
     return publicKey;
   }
+}
+
+// HKDF implementation
+async function hkdfDerive(
+  ikm: Uint8Array,
+  salt: Uint8Array | null,
+  info: Uint8Array,
+  length: number,
+): Promise<Uint8Array> {
+  // Step 1: Extract
+  const prk = createHmac("sha512", salt || Buffer.alloc(0))
+    .update(ikm)
+    .digest();
+
+  // Step 2: Expand
+  const N = Math.ceil(length / 64); // SHA-512 produces 64 bytes
+  const T = new Uint8Array(N * 64);
+  let lastT = new Uint8Array(0);
+
+  for (let i = 0; i < N; i++) {
+    const hmac = createHmac("sha512", prk);
+    hmac.update(Buffer.concat([lastT, info, Buffer.from([i + 1])]));
+    lastT = hmac.digest();
+    T.set(lastT, i * 64);
+  }
+
+  return T.slice(0, length);
 }
 
 /**
