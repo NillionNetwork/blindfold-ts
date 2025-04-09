@@ -54,6 +54,7 @@
     "@types/node": "^22.14.0",
     "@vitest/coverage-v8": "^2.1.8",
     "coveralls": "^3.1.1",
+    "crypto-browserify": "^3.12.1",
     "lefthook": "^1.10.1",
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
