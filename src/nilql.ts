@@ -3,7 +3,6 @@
  * and replies.
  */
 import * as bcu from "bigint-crypto-utils";
-import { createHmac } from "crypto-browserify";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
@@ -722,9 +721,18 @@ async function hkdfDerive(
   length: number,
 ): Promise<Uint8Array> {
   // Step 1: Extract
-  const prk = createHmac("sha512", salt || Buffer.alloc(0))
-    .update(ikm)
-    .digest();
+  const defaultSalt = new Uint8Array([0x00]); // Single zero byte as default salt
+  const hmacSalt = salt || defaultSalt;
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    hmacSalt,
+    { name: "HMAC", hash: "SHA-512" },
+    false,
+    ["sign"],
+  );
+
+  const prk = new Uint8Array(await crypto.subtle.sign("HMAC", key, ikm));
 
   // Step 2: Expand
   const N = Math.ceil(length / 64); // SHA-512 produces 64 bytes
@@ -732,9 +740,20 @@ async function hkdfDerive(
   let lastT = new Uint8Array(0);
 
   for (let i = 0; i < N; i++) {
-    const hmac = createHmac("sha512", prk);
-    hmac.update(Buffer.concat([lastT, info, Buffer.from([i + 1])]));
-    lastT = hmac.digest();
+    const hmacKey = await crypto.subtle.importKey(
+      "raw",
+      prk,
+      { name: "HMAC", hash: "SHA-512" },
+      false,
+      ["sign"],
+    );
+
+    const input = new Uint8Array(lastT.length + info.length + 1);
+    input.set(lastT);
+    input.set(info, lastT.length);
+    input[input.length - 1] = i + 1;
+
+    lastT = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, input));
     T.set(lastT, i * 64);
   }
 
