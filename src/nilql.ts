@@ -27,6 +27,16 @@ const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = 2n ** 32n + 15n;
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
 
 /**
+ * Helper function to get the crypto object with proper validation.
+ */
+function getCrypto(): Crypto {
+  if (!globalThis.crypto) {
+    throw new Error("Crypto web-api not available but required");
+  }
+  return globalThis.crypto;
+}
+
+/**
  * Mathematically standard modulus operator.
  */
 function _mod(n: bigint, m: bigint): bigint {
@@ -68,7 +78,7 @@ function _equalKeys(a: Array<string>, b: Array<string>) {
  * Return a SHA-512 hash of the supplied string.
  */
 async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
-  const buffer = await crypto.subtle.digest("SHA-512", bytes);
+  const buffer = await getCrypto().subtle.digest("SHA-512", bytes);
   return new Uint8Array(buffer);
 }
 
@@ -724,7 +734,7 @@ async function hkdfDerive(
   const defaultSalt = new Uint8Array([0x00]); // Single zero byte as default salt
   const hmacSalt = salt || defaultSalt;
 
-  const key = await crypto.subtle.importKey(
+  const key = await getCrypto().subtle.importKey(
     "raw",
     hmacSalt,
     { name: "HMAC", hash: "SHA-512" },
@@ -732,7 +742,7 @@ async function hkdfDerive(
     ["sign"],
   );
 
-  const prk = new Uint8Array(await crypto.subtle.sign("HMAC", key, ikm));
+  const prk = new Uint8Array(await getCrypto().subtle.sign("HMAC", key, ikm));
 
   // Step 2: Expand
   const N = Math.ceil(length / 64); // SHA-512 produces 64 bytes
@@ -740,7 +750,7 @@ async function hkdfDerive(
   let lastT = new Uint8Array(0);
 
   for (let i = 0; i < N; i++) {
-    const hmacKey = await crypto.subtle.importKey(
+    const hmacKey = await getCrypto().subtle.importKey(
       "raw",
       prk,
       { name: "HMAC", hash: "SHA-512" },
@@ -753,7 +763,9 @@ async function hkdfDerive(
     input.set(info, lastT.length);
     input[input.length - 1] = i + 1;
 
-    lastT = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, input));
+    lastT = new Uint8Array(
+      await getCrypto().subtle.sign("HMAC", hmacKey, input),
+    );
     T.set(lastT, i * 64);
   }
 
