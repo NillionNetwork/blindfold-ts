@@ -19,6 +19,14 @@ This library provides cryptographic operations that are compatible with nilDB no
 | multiple nodes | sum       | additive secret sharing (no threshold; prime modulus 2^32 + 15)   | 32-bit signed integer                             |
 | multiple nodes | sum       | Shamir's secret sharing (with threshold; prime modulus 2^32 + 15) | 32-bit signed integer                             |
 
+The library supports two categories of keys:
+
+1. `SecretKey`: Keys in this category support operations within a single node or across multiple nodes. These contain cryptographic material for encryption, decryption, and other operations. Notably, a `SecretKey` instance includes blinding masks that a client need not share with the cluster. By using `SecretKey` instances a client can retain exclusive access to its data *even if all servers in a cluster collude*. 
+
+2. `ClusterKey`: Keys in this category represent cluster configurations but do not contain cryptographic material. These can be used only when working with multiple-node clusters. Unlike `SecretKey` instances, `ClusterKey` instances do not incorporate blinding masks. This means each node in a cluster has access to a raw secret share of the encrypted data and, therefore, the data is only protected if the nodes in the cluster do not collude.
+
+Threshold secret sharing is supported when encrypting in a summation-compatible way for multiple-node clusters. A threshold specifies the minimum number of nodes required to reconstruct the original data. Shamir's secret sharing is employed when encrypting with a threshold value, ensuring that encrypted data can only be decrypted if the required number of shares is available.
+
 ## Package Installation and Usage
 
 The package can be installed using [pnpm](https://pnpm.io/):
@@ -33,11 +41,38 @@ The library can be imported in the usual way:
 import { nilql } from "@nillion/nilql";
 ```
 
-An example demonstrating use of the library is presented below:
+### Example: Generating Keys
+
+The example below generates a `SecretKey` instance for a single-node cluster:
 
 ```ts
-const cluster = {"nodes": [{}, {}]};
-const secretKey = await nilql.SecretKey.generate(cluster, {"sum": true});
+const cluster = {"nodes": [{}]};
+const secretKey = await nilql.SecretKey.generate(cluster, {"store": true});
+```
+
+The example below generates a `SecretKey` instance for a multiple-node (*i.e.*, three-node) cluster with a two-share decryption threshold:
+
+```ts
+const cluster = {"nodes": [{}, {}, {}]};
+const secretKey = await nilql.SecretKey.generate(cluster, {"sum": true}, 2);
+```
+
+### Example: Encrypting and Decrypting Data
+
+The below example encrypts and decrypts a string:
+
+```ts
+const secretKey = await nilql.SecretKey.generate({"nodes": [{}]}, {"store": true});
+const plaintext = "abc";
+const ciphertext = await nilql.encrypt(secretKey, plaintext);
+const decrypted = await nilql.decrypt(secretKey, ciphertext);
+console.log(plaintext, decrypted); // Should output `abc abc`.
+```
+
+The below example encrypts and decrypts an integer:
+
+```ts
+const secretKey = await nilql.SecretKey.generate({"nodes": [{}, {}, {}]}, {"sum": true}, 2);
 const plaintext = BigInt(123);
 const ciphertext = await nilql.encrypt(secretKey, plaintext);
 const decrypted = await nilql.decrypt(secretKey, ciphertext);

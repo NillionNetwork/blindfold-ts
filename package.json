@@ -1,6 +1,6 @@
 {
   "name": "@nillion/nilql",
-  "version": "0.0.0-alpha.14",
+  "version": "0.0.0-alpha.15",
   "description": "Library for working with encrypted data within NilDB queries and replies.",
   "license": "MIT",
   "homepage": "https://github.com/nillionnetwork/nilql-ts",
