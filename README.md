@@ -1,13 +1,13 @@
-# nilQL
-[![npm](https://badge.fury.io/js/nilql.svg)](https://www.npmjs.com/package/@nillion/nilql)
-[![ci](https://github.com/nillionnetwork/nilql-ts/actions/workflows/ci.yaml/badge.svg)](https://github.com/nillionnetwork/nilql-ts/actions)
-[![coveralls](https://coveralls.io/repos/github/NillionNetwork/nilql-ts/badge.svg?branch=main)](https://coveralls.io/github/NillionNetwork/nilql-ts)
+# blindfold
+[![npm](https://badge.fury.io/js/blindfold.svg)](https://www.npmjs.com/package/@nillion/blindfold)
+[![ci](https://github.com/nillionnetwork/blindfold-ts/actions/workflows/ci.yaml/badge.svg)](https://github.com/nillionnetwork/blindfold-ts/actions)
+[![coveralls](https://coveralls.io/repos/github/NillionNetwork/blindfold-ts/badge.svg?branch=main)](https://coveralls.io/github/NillionNetwork/blindfold-ts)
 
 Library for working with encrypted data within nilDB queries and replies.
 
 ## Description and Purpose
 
-This library provides cryptographic operations that are compatible with nilDB nodes and clusters, allowing developers to leverage certain privacy-enhancing technologies (PETs) when storing, operating upon, and retrieving data while working with nilDB. The table below summarizes the functionalities available in nilQL.
+This library provides cryptographic operations that are compatible with nilDB nodes and clusters, allowing developers to leverage certain privacy-enhancing technologies (PETs) when storing, operating upon, and retrieving data while working with nilDB. The table below summarizes the functionalities available in blindfold.
 
 | Cluster        | Operation | Implementation Details                                            | Supported Types                                   |
 |----------------|-----------|-------------------------------------------------------------------|---------------------------------------------------|
@@ -38,7 +38,7 @@ pnpm install
 The library can be imported in the usual way:
 
 ```ts
-import { nilql } from "@nillion/nilql";
+import { blindfold } from "@nillion/blindfold";
 ```
 
 ### Example: Generating Keys
@@ -47,14 +47,14 @@ The example below generates a `SecretKey` instance for a single-node cluster:
 
 ```ts
 const cluster = {"nodes": [{}]};
-const secretKey = await nilql.SecretKey.generate(cluster, {"store": true});
+const secretKey = await blindfold.SecretKey.generate(cluster, {"store": true});
 ```
 
 The example below generates a `SecretKey` instance for a multiple-node (*i.e.*, three-node) cluster with a two-share decryption threshold:
 
 ```ts
 const cluster = {"nodes": [{}, {}, {}]};
-const secretKey = await nilql.SecretKey.generate(cluster, {"sum": true}, 2);
+const secretKey = await blindfold.SecretKey.generate(cluster, {"sum": true}, 2);
 ```
 
 ### Example: Encrypting and Decrypting Data
@@ -62,20 +62,20 @@ const secretKey = await nilql.SecretKey.generate(cluster, {"sum": true}, 2);
 The below example encrypts and decrypts a string:
 
 ```ts
-const secretKey = await nilql.SecretKey.generate({"nodes": [{}]}, {"store": true});
+const secretKey = await blindfold.SecretKey.generate({"nodes": [{}]}, {"store": true});
 const plaintext = "abc";
-const ciphertext = await nilql.encrypt(secretKey, plaintext);
-const decrypted = await nilql.decrypt(secretKey, ciphertext);
+const ciphertext = await blindfold.encrypt(secretKey, plaintext);
+const decrypted = await blindfold.decrypt(secretKey, ciphertext);
 console.log(plaintext, decrypted); // Should output `abc abc`.
 ```
 
 The below example encrypts and decrypts an integer:
 
 ```ts
-const secretKey = await nilql.SecretKey.generate({"nodes": [{}, {}, {}]}, {"sum": true}, 2);
+const secretKey = await blindfold.SecretKey.generate({"nodes": [{}, {}, {}]}, {"sum": true}, 2);
 const plaintext = BigInt(123);
-const ciphertext = await nilql.encrypt(secretKey, plaintext);
-const decrypted = await nilql.decrypt(secretKey, ciphertext);
+const ciphertext = await blindfold.encrypt(secretKey, plaintext);
+const decrypted = await blindfold.decrypt(secretKey, ciphertext);
 console.log(plaintext, decrypted); // Should output `123n 123n`.
 ```
 
