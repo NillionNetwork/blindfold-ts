@@ -30,6 +30,7 @@ jobs:
           pnpm install
           pnpm biome ci
           pnpm typecheck
+          pnpm attw
 
   test:
     name: Test and report coverage

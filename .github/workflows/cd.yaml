@@ -1,32 +1,46 @@
 name: CD
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'NPM tag'
-        type: choice
-        required: true
-        options:
-          - next
-          - latest
 
 concurrency:
   group: "publish"
   cancel-in-progress: true
+
 jobs:
-  publish-nilql:
+  check-version:
     runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.check-version.outputs.local_version_is_higher }}
+      tag: ${{ steps.check-version.outputs.tag }}
+      version: ${{ steps.check-version.outputs.local_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "23"
+          node-version: "24"
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - id: check-version
+        run: pnpm exec tsx bin/check-version.ts
+
+  publish:
+    needs: check-version
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
       - uses: pnpm/action-setup@v4
       - run: pnpm install
       - run: pnpm build
-      - run: pnpm exportscheck
       - env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm publish --tag ${{ github.event.inputs.tag }}
+        run: pnpm publish --tag ${{ needs.check-version.outputs.tag }} --no-git-checks
