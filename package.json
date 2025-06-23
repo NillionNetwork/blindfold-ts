@@ -1,16 +1,9 @@
 {
-  "name": "@nillion/nilql",
-  "version": "0.0.0-alpha.15",
+  "name": "@nillion/blindfold",
+  "version": "0.1.0-rc.0",
   "description": "Library for working with encrypted data within NilDB queries and replies.",
   "license": "MIT",
-  "homepage": "https://github.com/nillionnetwork/nilql-ts",
-  "bugs": {
-    "url": "https://github.com/nillionnetwork/nilql-ts/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/nillionnetwork/nilql-ts.git"
-  },
+  "homepage": "https://github.com/nillionnetwork/blindfold-ts",
   "type": "module",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

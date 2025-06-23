@@ -1356,7 +1356,7 @@ async function unify(
 /**
  * Export library wrapper.
  */
-export const nilql = {
+export const blindfold = {
   SecretKey,
   ClusterKey,
   PublicKey,
