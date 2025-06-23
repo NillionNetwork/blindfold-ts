@@ -562,7 +562,6 @@ class ClusterKey extends SecretKey {
       );
     }
 
-    // biome-ignore lint: Attribute must not exist in object.
     delete this.material;
 
     this.cluster = cluster;
@@ -1106,7 +1105,7 @@ async function decrypt(
         : secretKey.cluster.nodes.map((_) => 1n);
 
     const shares: [bigint, bigint][] = (ciphertext as [number, number][]).map(
-      ([x, y], i) => [
+      ([x, y], _i) => [
         BigInt(x),
         _mod(
           inverseMasks[x - 1] * BigInt(y),
@@ -1317,7 +1316,7 @@ async function unify(
 
     // Documents are general-purpose key-value mappings.
     const keys: Array<string> = Object.keys(documents[0]);
-    const zip = (a: Array<string>, b: Array<string>) =>
+    const _zip = (a: Array<string>, b: Array<string>) =>
       a.map((k, i) => [k, b[i]]);
     if (
       documents.every((document) => _equalKeys(keys, Object.keys(document)))

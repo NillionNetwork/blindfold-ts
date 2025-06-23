@@ -138,7 +138,7 @@ describe("methods of cryptographic key classes", () => {
   }
 
   test("generate, dump, JSONify, and load keys for sum operation with single node", async () => {
-    const cluster = { nodes: [{}] };
+    const _cluster = { nodes: [{}] };
     const secretKey = secretKeyForSumWithOneNode;
     const publicKey = await blindfold.PublicKey.generate(secretKey);
 
@@ -348,7 +348,7 @@ test("generate key from seed for sum operation with multiple nodes and threshold
 describe("errors involving methods of cryptographic key classes", () => {
   test("errors in secret key generation", async () => {
     try {
-      const secretKey = await blindfold.SecretKey.generate(
+      const _secretKey = await blindfold.SecretKey.generate(
         { nodes: [{}] },
         { match: true, sum: true },
       );
@@ -454,7 +454,7 @@ describe("errors involving methods of cryptographic key classes", () => {
       const secretKey = await blindfold.SecretKey.generate(cluster, {
         sum: true,
       });
-      const publicKey = await blindfold.PublicKey.generate(secretKey);
+      const _publicKey = await blindfold.PublicKey.generate(secretKey);
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("cannot create public key for supplied secret key"),
@@ -638,7 +638,7 @@ describe("encryption and decryption functions", () => {
   }
 
   test("encryption and decryption for sum operation with single node", async () => {
-    const cluster = { nodes: [{}] };
+    const _cluster = { nodes: [{}] };
     const secretKey = secretKeyForSumWithOneNode;
     const publicKey = await blindfold.PublicKey.generate(secretKey);
 
