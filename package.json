@@ -25,7 +25,7 @@
     "test": "vitest run",
     "lint": "biome check",
     "typecheck": "tsc",
-    "exportscheck": "attw --pack .",
+    "attw": "attw --pack .",
     "install-hooks": "lefthook install"
   },
   "engines": {
