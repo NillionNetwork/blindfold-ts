@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { blindfold } from "#/lib";
+import * as blindfold from "#/lib";
 
 /**
  * Helper function for converting an object that may contain `bigint` values

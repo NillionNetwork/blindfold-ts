@@ -213,7 +213,7 @@ function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
 /**
  * Adds two sets of shares pointwise, assuming they use the same indices.
  */
-function shamirsAdd(
+export function shamirsAdd(
   shares1: [number, number][],
   shares2: [number, number][],
 ): [number, number][] {
@@ -316,7 +316,7 @@ interface Operations {
 /**
  * Data structure for representing all categories of secret key instances.
  */
-class SecretKey {
+export class SecretKey {
   material?: object | number;
   cluster: Cluster;
   operations: Operations;
@@ -549,7 +549,7 @@ class SecretKey {
 /**
  * Data structure for representing all categories of cluster key instances.
  */
-class ClusterKey extends SecretKey {
+export class ClusterKey extends SecretKey {
   protected constructor(
     cluster: Cluster,
     operations: Operations,
@@ -631,7 +631,7 @@ class ClusterKey extends SecretKey {
 /**
  * Data structure for representing all categories of public key instances.
  */
-class PublicKey {
+export class PublicKey {
   material: object;
   cluster: Cluster;
   operations: Operations;
@@ -775,7 +775,7 @@ async function hkdfDerive(
  * Return the ciphertext obtained by using the supplied key to encrypt the
  * supplied plaintext.
  */
-async function encrypt(
+export async function encrypt(
   key: PublicKey | SecretKey,
   plaintext: number | bigint | string | Uint8Array,
 ): Promise<string | string[] | number[] | number[][]> {
@@ -962,7 +962,7 @@ async function encrypt(
  * Return the plaintext obtained by using the supplied key to decrypt the
  * supplied ciphertext.
  */
-async function decrypt(
+export async function decrypt(
   secretKey: SecretKey,
   ciphertext: string | string[] | number[] | number[][],
 ): Promise<bigint | string | Uint8Array> {
@@ -1136,7 +1136,7 @@ async function decrypt(
  * clusters into secret shares of that object. Shallow copies are created
  * whenever possible.
  */
-function allot(document: object): object[] {
+export function allot(document: object): object[] {
   // Values and `null` are base cases.
   if (
     typeof document === "boolean" ||
@@ -1259,7 +1259,7 @@ function allot(document: object): object[] {
  * that deduplicates matching plaintext leaf values and recombines matching
  * secret share leaf values.
  */
-async function unify(
+export async function unify(
   secretKey: SecretKey,
   documents: object[],
   ignore: string[] = ["_created", "_updated"],
@@ -1351,17 +1351,3 @@ async function unify(
 
   throw new TypeError("array of compatible document shares expected");
 }
-
-/**
- * Export library wrapper.
- */
-export const blindfold = {
-  SecretKey,
-  ClusterKey,
-  PublicKey,
-  encrypt,
-  decrypt,
-  shamirsAdd,
-  allot,
-  unify,
-} as const;
