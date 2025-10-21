@@ -2,6 +2,8 @@
  * TypeScript library for working with encrypted data within nilDB queries
  * and replies.
  */
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha512 } from "@noble/hashes/sha2.js";
 import * as bcu from "bigint-crypto-utils";
 import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
@@ -95,10 +97,15 @@ async function _randomBytes(
 
   if (seed !== null) {
     try {
-      const info = new Uint8Array(0); // Empty info string
-      return await hkdfDerive(seed, salt, info, length);
+      return hkdf(
+        sha512,
+        seed,
+        salt || new Uint8Array([0x00]),
+        new Uint8Array(0),
+        length,
+      );
     } catch (error) {
-      throw new Error(`Failed to derive key: ${error}`);
+      throw new Error(`failed to derive key from seed: ${error}`);
     }
   }
 
@@ -720,55 +727,6 @@ export class PublicKey {
 
     return publicKey;
   }
-}
-
-// HKDF implementation
-async function hkdfDerive(
-  ikm: Uint8Array,
-  salt: Uint8Array | null,
-  info: Uint8Array,
-  length: number,
-): Promise<Uint8Array> {
-  // Step 1: Extract
-  const defaultSalt = new Uint8Array([0x00]); // Single zero byte as default salt
-  const hmacSalt = salt || defaultSalt;
-
-  const key = await getCrypto().subtle.importKey(
-    "raw",
-    hmacSalt,
-    { name: "HMAC", hash: "SHA-512" },
-    false,
-    ["sign"],
-  );
-
-  const prk = new Uint8Array(await getCrypto().subtle.sign("HMAC", key, ikm));
-
-  // Step 2: Expand
-  const N = Math.ceil(length / 64); // SHA-512 produces 64 bytes
-  const T = new Uint8Array(N * 64);
-  let lastT = new Uint8Array(0);
-
-  for (let i = 0; i < N; i++) {
-    const hmacKey = await getCrypto().subtle.importKey(
-      "raw",
-      prk,
-      { name: "HMAC", hash: "SHA-512" },
-      false,
-      ["sign"],
-    );
-
-    const input = new Uint8Array(lastT.length + info.length + 1);
-    input.set(lastT);
-    input.set(info, lastT.length);
-    input[input.length - 1] = i + 1;
-
-    lastT = new Uint8Array(
-      await getCrypto().subtle.sign("HMAC", hmacKey, input),
-    );
-    T.set(lastT, i * 64);
-  }
-
-  return T.slice(0, length);
 }
 
 /**
