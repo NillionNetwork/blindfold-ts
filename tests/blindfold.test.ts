@@ -8,8 +8,12 @@ import { describe, expect, test } from "vitest";
 import * as blindfold from "#/lib";
 
 /**
- * Helper function for converting an object that may contain `bigint` values
- * to JSON.
+ * Modulus to use for additive secret sharing of 32-bit signed integers.
+ */
+const _SECRET_SHARED_SIGNED_INTEGER_MODULUS: bigint = 2n ** 32n + 15n;
+
+/**
+ * Convert an object that may contain `bigint` values to JSON.
  */
 function toJSON(o: object): string {
   return JSON.stringify(o, (_, v) =>
@@ -18,18 +22,35 @@ function toJSON(o: object): string {
 }
 
 /**
- * Concatenate two `Uint8Array` instances.
+ * Mathematically standard modulus operator.
  */
-function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const c = new Uint8Array(a.length + b.length);
-  c.set(a);
-  c.set(b, a.length);
-  return c;
+function mod(n: bigint, m: bigint): bigint {
+  return (((n < 0 ? n + m : n) % m) + m) % m;
 }
 
 /**
- * Helper function for converting a large binary output from a test into a
- * short hash.
+ * Add two sets of shares componentwise, assuming they use the same indices.
+ */
+function shamirsAdd(
+  sharesA: [number, number][],
+  sharesB: [number, number][],
+  prime: bigint,
+): [number, number][] {
+  if (sharesA.length !== sharesB.length) {
+    throw new Error("sequences of shares must have the same length");
+  }
+
+  return sharesA.map(([i, v], index) => {
+    const [j, w] = sharesB[index];
+    if (i !== j) {
+      throw new Error("shares in each sequence must have the same indices");
+    }
+    return [i, Number(mod(BigInt(v) + BigInt(w), BigInt(prime)))];
+  });
+}
+
+/**
+ * Converting a large binary output from a test into a short hash.
  */
 async function toHashBase64(
   output: Uint8Array | Array<number>,
@@ -1088,24 +1109,24 @@ describe("end-to-end workflows involving secure computation", () => {
       { nodes: [{}, {}, {}] },
       { sum: true },
     );
-    const [a0, b0, c0] = (await blindfold.encrypt(
+    const [a0, a1, a2] = (await blindfold.encrypt(
       secretKey,
       123,
     )) as Array<number>;
-    const [a1, b1, c1] = (await blindfold.encrypt(
+    const [b0, b1, b2] = (await blindfold.encrypt(
       secretKey,
       456,
     )) as Array<number>;
-    const [a2, b2, c2] = (await blindfold.encrypt(
+    const [c0, c1, c2] = (await blindfold.encrypt(
       secretKey,
       789,
     )) as Array<number>;
-    const [a3, b3, c3] = [
-      (a0 + a1 + a2) % (2 ** 32 + 15),
-      (b0 + b1 + b2) % (2 ** 32 + 15),
-      (c0 + c1 + c2) % (2 ** 32 + 15),
+    const [r0, r1, r2] = [
+      (a0 + b0 + c0) % Number(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+      (a1 + b1 + c1) % Number(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+      (a2 + b2 + c2) % Number(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
     ];
-    const decrypted = await blindfold.decrypt(secretKey, [a3, b3, c3]);
+    const decrypted = await blindfold.decrypt(secretKey, [r0, r1, r2]);
     expect(BigInt(decrypted as bigint)).toEqual(BigInt(123 + 456 + 789));
   });
 });
@@ -1120,21 +1141,26 @@ describe("end-to-end workflows involving secure computation", () => {
       { sum: true },
       3,
     );
-    const [a0, b0, c0] = (await blindfold.encrypt(secretKey, 123)) as Array<
+    const [a0, a1, a2] = (await blindfold.encrypt(secretKey, 123)) as Array<
       [number, number]
     >;
-    const [a1, b1, c1] = (await blindfold.encrypt(secretKey, 456)) as Array<
+    const [b0, b1, b2] = (await blindfold.encrypt(secretKey, 456)) as Array<
       [number, number]
     >;
-    const [a2, b2, c2] = (await blindfold.encrypt(secretKey, 789)) as Array<
+    const [c0, c1, c2] = (await blindfold.encrypt(secretKey, 789)) as Array<
       [number, number]
     >;
 
-    const [a3, b3, c3] = blindfold.shamirsAdd(
-      blindfold.shamirsAdd([a0, b0, c0], [a1, b1, c1]),
-      [a2, b2, c2],
+    const [r0, r1, r2] = shamirsAdd(
+      shamirsAdd(
+        [a0, a1, a2],
+        [b0, b1, b2],
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      ),
+      [c0, c1, c2],
+      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
     );
-    const decrypted = await blindfold.decrypt(secretKey, [a3, b3, c3]);
+    const decrypted = await blindfold.decrypt(secretKey, [r0, r1, r2]);
     expect(BigInt(decrypted as bigint)).toEqual(BigInt(123 + 456 + 789));
   });
 });

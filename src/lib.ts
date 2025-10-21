@@ -11,22 +11,22 @@ import * as paillierBigint from "paillier-bigint";
 /**
  * Minimum plaintext 32-bit signed integer value that can be encrypted.
  */
-const _PLAINTEXT_SIGNED_INTEGER_MIN = BigInt(-2147483648);
+const _PLAINTEXT_SIGNED_INTEGER_MIN: bigint = -(2n ** 31n);
 
 /**
  * Maximum plaintext 32-bit signed integer value that can be encrypted.
  */
-const _PLAINTEXT_SIGNED_INTEGER_MAX = BigInt(2147483647);
+const _PLAINTEXT_SIGNED_INTEGER_MAX: bigint = 2n ** 31n - 1n;
 
 /**
- * Modulus to use for additive secret sharing of 32-bit signed integers.
+ * Modulus to use for secret shares of 32-bit signed integers.
  */
-const _SECRET_SHARED_SIGNED_INTEGER_MODULUS = 2n ** 32n + 15n;
+const _SECRET_SHARED_SIGNED_INTEGER_MODULUS: bigint = 2n ** 32n + 15n;
 
 /**
  * Maximum length of plaintext string values that can be encrypted.
  */
-const _PLAINTEXT_STRING_BUFFER_LEN_MAX = 4096;
+const _PLAINTEXT_STRING_BUFFER_LEN_MAX: number = 4096;
 
 /**
  * Helper function to get the crypto object with proper validation.
@@ -154,47 +154,54 @@ async function _randomInteger(
 }
 
 /**
- * Evaluates polynomial (coefficient tuple) at x.
+ * Evaluates polynomial (represented as a sequence of coefficients) at `x`.
  */
-function _shamirsEval(poly: bigint[], x: bigint, prime: bigint): bigint {
+function _shamirsEval(
+  coefficients: bigint[],
+  x: bigint,
+  prime: bigint,
+): bigint {
   let accum = BigInt(0);
-  for (let i = poly.length - 1; i >= 0; i--) {
-    accum = (_mod(accum * x, prime) + poly[i]) % prime;
+  for (let i = coefficients.length - 1; i >= 0; i--) {
+    accum = (_mod(accum * x, prime) + coefficients[i]) % prime;
   }
   return accum;
 }
 
 /**
- * Generates a random Shamir pool for a given secret and returns share points.
+ * Uses Shamir's secret sharing scheme to generate and return a collection of
+ * secret shares representing the supplied plaintext.
  */
 async function _shamirsShares(
-  secret: bigint,
-  totalShares: number,
-  minimumShares: number,
+  plaintext: bigint,
+  quantity: number,
+  threshold: number,
   prime: bigint,
 ): Promise<[bigint, bigint][]> {
-  if (minimumShares > totalShares) {
-    throw new Error("Minimum shares required must be less than total shares.");
+  if (threshold > quantity) {
+    throw new Error(
+      "quantity of shares cannot be less than the reconstruction threshold",
+    );
   }
 
   // Generate polynomial coefficients, ensuring they are within the correct range.
-  const poly: bigint[] = [secret];
-  for (let i = 1; i < minimumShares; i++) {
-    poly.push(await _randomInteger(1n, prime - 1n)); // Use a proper `bigint` random generator
+  const coefficients: bigint[] = [plaintext];
+  for (let i = 1; i < threshold; i++) {
+    coefficients.push(await _randomInteger(1n, prime - 1n));
   }
 
   // Generate the shares.
   const points: [bigint, bigint][] = [];
-  for (let i = 1; i <= totalShares; i++) {
+  for (let i = 1; i <= quantity; i++) {
     const x = BigInt(i);
-    const y = _shamirsEval(poly, x, prime);
+    const y = _shamirsEval(coefficients, x, prime);
     points.push([x, y]);
   }
   return points;
 }
 
 /**
- * Recover the secret value from the supplied share instances.
+ * Recover the plaintext value from the supplied sequence of Shamir's secret shares.
  */
 function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
   let secret = 0n;
@@ -215,34 +222,6 @@ function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
   }
 
   return secret;
-}
-
-/**
- * Adds two sets of shares pointwise, assuming they use the same indices.
- */
-export function shamirsAdd(
-  shares1: [number, number][],
-  shares2: [number, number][],
-): [number, number][] {
-  if (shares1.length !== shares2.length) {
-    throw new Error("Shares sets must have the same length.");
-  }
-
-  return shares1.map(([x1, y1], index) => {
-    const [x2, y2] = shares2[index];
-    if (x1 !== x2) {
-      throw new Error("Mismatched x-values in shares.");
-    }
-    return [
-      x1,
-      Number(
-        _mod(
-          BigInt(y1) + BigInt(y2),
-          BigInt(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
-        ),
-      ),
-    ];
-  });
 }
 
 /**
@@ -397,7 +376,7 @@ export class SecretKey {
         const { privateKey } = await paillierBigint.generateRandomKeys(2048);
         secretKey.material = privateKey;
       } else {
-        // Distinct multiplicative mask for each additive share.
+        // Distinct multiplicative mask for each share.
         secretKey.material = [];
         for (let i = 0n; i < secretKey.cluster.nodes.length; i++) {
           const indexBytes = Buffer.alloc(8);
