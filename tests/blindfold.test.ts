@@ -4,6 +4,7 @@
  * as well as unit tests confirming algebraic relationships among primitives.
  */
 
+import type * as paillierBigint from "paillier-bigint";
 import { describe, expect, test } from "vitest";
 import * as blindfold from "#/lib";
 
@@ -46,6 +47,19 @@ function shamirsAdd(
       throw new Error("shares in each sequence must have the same indices");
     }
     return [i, Number(mod(BigInt(v) + BigInt(w), BigInt(prime)))];
+  });
+}
+
+/**
+ * Multiply a set of shares componentwise.
+ */
+function shamirsMul(
+  shares: [number, number][],
+  scalar: number,
+  prime: bigint,
+): [number, number][] {
+  return shares.map(([i, v], _) => {
+    return [i, Number(mod(BigInt(v) * BigInt(scalar), BigInt(prime)))];
   });
 }
 
@@ -1104,11 +1118,41 @@ describe("end-to-end workflows involving encryption/decryption", () => {
  * Tests consisting of end-to-end workflows involving secure computation.
  */
 describe("end-to-end workflows involving secure computation", () => {
-  test("end-to-end workflow for secure summation with a multi-node cluster", async () => {
+  test("end-to-end workflow involving secure summation for a single-node cluster", async () => {
+    const secretKey = await blindfold.SecretKey.generate(
+      { nodes: [{}] },
+      { sum: true },
+    );
+    const publicKey = await blindfold.PublicKey.generate(secretKey);
+
+    const a = (await blindfold.encrypt(publicKey, 123)) as string;
+    const b = (await blindfold.encrypt(publicKey, 456)) as string;
+    const c = (await blindfold.encrypt(publicKey, 789)) as string;
+
+    const paillierPublicKey: paillierBigint.PublicKey =
+      publicKey.material as paillierBigint.PublicKey;
+    const aBigInt = BigInt(`0x${a}`);
+    const bBigInt = BigInt(`0x${b}`);
+    const cBigInt = BigInt(`0x${c}`);
+    const rBigInt = paillierPublicKey.addition(
+      paillierPublicKey.addition(
+        paillierPublicKey.multiply(aBigInt, 2),
+        paillierPublicKey.multiply(bBigInt, -1),
+      ),
+      cBigInt,
+    );
+    const decrypted = await blindfold.decrypt(secretKey, rBigInt.toString(16));
+    expect(BigInt(decrypted as bigint) - 2n ** 31n).toEqual(
+      BigInt(2 * 123 + -1 * 456 + 789),
+    );
+  });
+
+  test("end-to-end workflow involving secure summation for a multiple-node cluster", async () => {
     const secretKey = await blindfold.ClusterKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
     );
+
     const [a0, a1, a2] = (await blindfold.encrypt(
       secretKey,
       123,
@@ -1121,26 +1165,26 @@ describe("end-to-end workflows involving secure computation", () => {
       secretKey,
       789,
     )) as Array<number>;
+
+    const modulus = _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
     const [r0, r1, r2] = [
-      (a0 + b0 + c0) % Number(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
-      (a1 + b1 + c1) % Number(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
-      (a2 + b2 + c2) % Number(_SECRET_SHARED_SIGNED_INTEGER_MODULUS),
+      (2 * a0 + -1 * b0 + c0) % Number(modulus),
+      (2 * a1 + -1 * b1 + c1) % Number(modulus),
+      (2 * a2 + -1 * b2 + c2) % Number(modulus),
     ];
     const decrypted = await blindfold.decrypt(secretKey, [r0, r1, r2]);
-    expect(BigInt(decrypted as bigint)).toEqual(BigInt(123 + 456 + 789));
+    expect(BigInt(decrypted as bigint)).toEqual(
+      BigInt(2 * 123 + -1 * 456 + 789),
+    );
   });
-});
 
-/**
- * Tests consisting of end-to-end workflows involving secure computation.
- */
-describe("end-to-end workflows involving secure computation", () => {
-  test("end-to-end workflow for secure summation with a multi-node cluster and threshold", async () => {
+  test("end-to-end workflow involving secure summation with a threshold for a multiple-node cluster", async () => {
     const secretKey = await blindfold.ClusterKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
       3,
     );
+
     const [a0, a1, a2] = (await blindfold.encrypt(secretKey, 123)) as Array<
       [number, number]
     >;
@@ -1151,17 +1195,20 @@ describe("end-to-end workflows involving secure computation", () => {
       [number, number]
     >;
 
+    const modulus = _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
     const [r0, r1, r2] = shamirsAdd(
       shamirsAdd(
-        [a0, a1, a2],
-        [b0, b1, b2],
-        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        shamirsMul([a0, a1, a2], 2, modulus),
+        shamirsMul([b0, b1, b2], -1, modulus),
+        modulus,
       ),
       [c0, c1, c2],
-      _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      modulus,
     );
     const decrypted = await blindfold.decrypt(secretKey, [r0, r1, r2]);
-    expect(BigInt(decrypted as bigint)).toEqual(BigInt(123 + 456 + 789));
+    expect(BigInt(decrypted as bigint)).toEqual(
+      BigInt(2 * 123 + -1 * 456 + 789),
+    );
   });
 });
 
