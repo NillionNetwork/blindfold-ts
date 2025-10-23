@@ -14,6 +14,11 @@ import * as blindfold from "#/lib";
 const _SECRET_SHARED_SIGNED_INTEGER_MODULUS: bigint = 2n ** 32n + 15n;
 
 /**
+ * Maximum length of plaintext string values that can be encrypted.
+ */
+const _PLAINTEXT_STRING_BUFFER_LEN_MAX: number = 4096;
+
+/**
  * Convert an object that may contain `bigint` values to JSON.
  */
 function toJSON(o: object): string {
@@ -890,11 +895,15 @@ describe("errors involving encryption and decryption functions", () => {
     }
 
     try {
-      await blindfold.encrypt(secretKey, "x".repeat(4097));
+      await blindfold.encrypt(
+        secretKey,
+        "x".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX + 1),
+      );
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "plaintext must be possible to encode in 4096 bytes or fewer",
+          "string or binary plaintext must be at most " +
+            `${_PLAINTEXT_STRING_BUFFER_LEN_MAX} bytes or fewer in length`,
         ),
       );
     }
@@ -915,11 +924,15 @@ describe("errors involving encryption and decryption functions", () => {
     }
 
     try {
-      await blindfold.encrypt(secretKey, "x".repeat(4097));
+      await blindfold.encrypt(
+        secretKey,
+        "x".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX + 1),
+      );
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError(
-          "plaintext must be possible to encode in 4096 bytes or fewer",
+          "string or binary plaintext must be at most " +
+            `${_PLAINTEXT_STRING_BUFFER_LEN_MAX} bytes or fewer in length`,
         ),
       );
     }

@@ -773,10 +773,10 @@ export async function encrypt(
     // Encode a string or binary plaintext.
     buffer = Buffer.from(_encode(plaintext));
 
-    if (buffer.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX) {
+    if (buffer.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX + 1) {
       const len = _PLAINTEXT_STRING_BUFFER_LEN_MAX;
       throw new TypeError(
-        `plaintext must be possible to encode in ${len} bytes or fewer`,
+        `string or binary plaintext must be at most ${len} bytes or fewer in length`,
       );
     }
   }
