@@ -9,6 +9,16 @@ import sodium from "libsodium-wrappers-sumo";
 import * as paillierBigint from "paillier-bigint";
 
 /**
+ * Length in bits of Paillier keys.
+ */
+const _PAILLIER_KEY_LENGTH: number = 2048;
+
+/**
+ * Modulus to use for secret shares of 32-bit signed integers.
+ */
+const _SECRET_SHARED_SIGNED_INTEGER_MODULUS: bigint = 2n ** 32n + 15n;
+
+/**
  * Minimum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MIN: bigint = -(2n ** 31n);
@@ -17,11 +27,6 @@ const _PLAINTEXT_SIGNED_INTEGER_MIN: bigint = -(2n ** 31n);
  * Maximum plaintext 32-bit signed integer value that can be encrypted.
  */
 const _PLAINTEXT_SIGNED_INTEGER_MAX: bigint = 2n ** 31n - 1n;
-
-/**
- * Modulus to use for secret shares of 32-bit signed integers.
- */
-const _SECRET_SHARED_SIGNED_INTEGER_MODULUS: bigint = 2n ** 32n + 15n;
 
 /**
  * Maximum length of plaintext string values that can be encrypted.
@@ -373,8 +378,15 @@ export class SecretKey {
               "is not supported for single-node clusters",
           );
         }
-        const { privateKey } = await paillierBigint.generateRandomKeys(2048);
-        secretKey.material = privateKey;
+        const { privateKey } =
+          await paillierBigint.generateRandomKeys(_PAILLIER_KEY_LENGTH);
+
+        // Discard cached prime factor attributes for consistency.
+        secretKey.material = new paillierBigint.PrivateKey(
+          privateKey.lambda,
+          privateKey.mu,
+          privateKey.publicKey,
+        );
       } else {
         // Distinct multiplicative mask for each share.
         secretKey.material = [];
@@ -536,7 +548,7 @@ export class SecretKey {
  * Data structure for representing all categories of cluster key instances.
  */
 export class ClusterKey extends SecretKey {
-  protected constructor(
+  private constructor(
     cluster: Cluster,
     operations: Operations,
     threshold: number | undefined = undefined,
@@ -622,19 +634,18 @@ export class PublicKey {
   cluster: Cluster;
   operations: Operations;
 
-  private constructor(secretKey: SecretKey) {
-    this.cluster = secretKey.cluster;
-    this.operations = secretKey.operations;
-
-    if (
-      typeof secretKey.material === "object" &&
-      "publicKey" in secretKey.material &&
-      secretKey.material.publicKey instanceof paillierBigint.PublicKey
-    ) {
-      this.material = secretKey.material.publicKey;
-    } else {
-      throw new TypeError("cannot create public key for supplied secret key");
-    }
+  /**
+   * Return a public key built according to what is specified in the supplied
+   * secret key.
+   */
+  private constructor(
+    cluster: Cluster,
+    operations: Operations,
+    material: object,
+  ) {
+    this.cluster = cluster;
+    this.operations = operations;
+    this.material = material;
   }
 
   /**
@@ -642,7 +653,22 @@ export class PublicKey {
    * secret key.
    */
   public static async generate(secretKey: SecretKey): Promise<PublicKey> {
-    return new PublicKey(secretKey);
+    const cluster = secretKey.cluster;
+    const operations = secretKey.operations;
+    const material = {};
+    const publicKey = new PublicKey(cluster, operations, material);
+
+    if (
+      typeof secretKey.material === "object" &&
+      "publicKey" in secretKey.material &&
+      secretKey.material.publicKey instanceof paillierBigint.PublicKey
+    ) {
+      publicKey.material = secretKey.material.publicKey;
+    } else {
+      throw new TypeError("cannot create public key for supplied secret key");
+    }
+
+    return publicKey;
   }
 
   /**
@@ -685,11 +711,10 @@ export class PublicKey {
       throw errorInvalid;
     }
 
-    const publicKey = {} as PublicKey;
-    publicKey.cluster = object.cluster as Cluster;
-    publicKey.operations = object.operations as Operations;
+    const cluster = object.cluster as Cluster;
+    const operations = object.operations as Operations;
 
-    const material = object.material as object;
+    let material = object.material as object;
 
     if (!("n" in material && "g" in material)) {
       throw errorInvalid;
@@ -699,12 +724,12 @@ export class PublicKey {
       throw errorInvalid;
     }
 
-    publicKey.material = new paillierBigint.PublicKey(
+    material = new paillierBigint.PublicKey(
       BigInt(material.n as string),
       BigInt(material.g as string),
     );
 
-    return publicKey;
+    return new PublicKey(cluster, operations, material);
   }
 }
 
