@@ -1155,7 +1155,7 @@ describe("end-to-end workflows involving secure computation", () => {
       cBigInt,
     );
     const decrypted = await blindfold.decrypt(secretKey, rBigInt.toString(16));
-    expect(BigInt(decrypted as bigint) - 2n ** 31n).toEqual(
+    expect(BigInt(decrypted as bigint)).toEqual(
       BigInt(2 * 123 + -1 * 456 + 789),
     );
   });
@@ -1181,9 +1181,9 @@ describe("end-to-end workflows involving secure computation", () => {
 
     const modulus = _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
     const [r0, r1, r2] = [
-      (2 * a0 + -1 * b0 + c0) % Number(modulus),
-      (2 * a1 + -1 * b1 + c1) % Number(modulus),
-      (2 * a2 + -1 * b2 + c2) % Number(modulus),
+      Number(mod(BigInt(2 * a0 + -1 * b0 + c0), modulus)),
+      Number(mod(BigInt(2 * a1 + -1 * b1 + c1), modulus)),
+      Number(mod(BigInt(2 * a2 + -1 * b2 + c2), modulus)),
     ];
     const decrypted = await blindfold.decrypt(secretKey, [r0, r1, r2]);
     expect(BigInt(decrypted as bigint)).toEqual(

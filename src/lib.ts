@@ -858,7 +858,7 @@ export async function encrypt(
       }
 
       return paillierPublicKey
-        .encrypt(bigInt - _PLAINTEXT_SIGNED_INTEGER_MIN)
+        .encrypt(bigInt + (bigInt < 0 ? paillierPublicKey.n : 0n))
         .toString(16);
     }
 
@@ -1014,9 +1014,14 @@ export async function decrypt(
     if (secretKey.cluster.nodes.length === 1) {
       const paillierPrivateKey =
         secretKey.material as paillierBigint.PrivateKey;
+      const plaintextFieldElement = paillierPrivateKey.decrypt(
+        BigInt(`0x${ciphertext as string}`),
+      );
       return (
-        paillierPrivateKey.decrypt(BigInt(`0x${ciphertext as string}`)) +
-        _PLAINTEXT_SIGNED_INTEGER_MIN
+        plaintextFieldElement -
+        (plaintextFieldElement > _PLAINTEXT_SIGNED_INTEGER_MAX
+          ? (paillierPrivateKey.publicKey as paillierBigint.PublicKey).n
+          : 0n)
       );
     }
 
