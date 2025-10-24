@@ -183,11 +183,12 @@ function _shamirsEval(
 async function _shamirsShares(
   plaintext: bigint,
   quantity: number,
-  threshold: number,
   prime: bigint,
+  threshold: number | undefined,
 ): Promise<[bigint, bigint][]> {
-  /* v8 ignore next 5 */ // All invocations supply an explicit threshold.
-  if (threshold > quantity) {
+  /* v8 ignore next */ // All invocations supply an explicit threshold.
+  const threshold_ = threshold === undefined ? quantity : threshold;
+  if (threshold_ > quantity) {
     throw new Error(
       "quantity of shares cannot be less than the reconstruction threshold",
     );
@@ -195,7 +196,7 @@ async function _shamirsShares(
 
   // Generate polynomial coefficients, ensuring they are within the correct range.
   const coefficients: bigint[] = [plaintext];
-  for (let i = 1; i < threshold; i++) {
+  for (let i = 1; i < threshold_; i++) {
     coefficients.push(await _randomInteger(1n, prime - 1n));
   }
 
@@ -744,9 +745,17 @@ export class PublicKey {
 /**
  * Return the ciphertext obtained by using the supplied key to encrypt the
  * supplied plaintext.
+ *
+ * The supplied key determines what protocol is used to perform the encryption.
+ * Invocations involving invalid argument values or types may throw an error.
+ * The type of the `key` argument is checked. Incompatibilities between those
+ * attribute values and the supplied `plaintext` argument are also detected.
+ * However, the values associated with those attributes (such as the cluster
+ * configuration, the cryptographic material associated with the supplied key,
+ * interdependencies between these, and so on) are not checked for validity.
  */
 export async function encrypt(
-  key: PublicKey | SecretKey,
+  key: SecretKey | ClusterKey | PublicKey,
   plaintext: number | bigint | string | Uint8Array,
 ): Promise<string | string[] | number[] | number[][]> {
   await sodium.ready;
@@ -755,35 +764,34 @@ export async function encrypt(
     "cannot encrypt the supplied plaintext using the supplied key",
   );
 
-  // The values below may be used (depending on the plaintext type and the specific
-  // kind of encryption being invoked).
-  let buffer: Buffer = Buffer.from(new Uint8Array());
-  let bigInt = 0n;
+  // Local variables for representing the plaintext. These may or may not be
+  // used depending on the supplied key and plaintext type.
+  let buffer: Buffer;
+  let bigInt: bigint | undefined;
 
-  // Ensure the supplied plaintext is of one of the supported types, check that the
-  // value satisfies the constraints, and (if applicable) perform standard conversion
-  // and encoding of the plaintext.
+  // Normalize the supplied plaintext.
   if (typeof plaintext === "number" || typeof plaintext === "bigint") {
-    // Encode an integer plaintext.
+    // Normalize, check, and encode integer plaintext.
     bigInt =
       typeof plaintext === "number" ? BigInt(Number(plaintext)) : plaintext;
-    buffer = Buffer.from(_encode(bigInt));
 
     if (
       bigInt < _PLAINTEXT_SIGNED_INTEGER_MIN ||
       bigInt > _PLAINTEXT_SIGNED_INTEGER_MAX
     ) {
-      throw new TypeError(
+      throw new Error(
         "numeric plaintext must be a valid 32-bit signed integer",
       );
     }
+
+    buffer = Buffer.from(_encode(bigInt));
   } else {
-    // Encode a string or binary plaintext.
+    // Encode a string or binary plaintext for storage or matching.
     buffer = Buffer.from(_encode(plaintext));
 
     if (buffer.length > _PLAINTEXT_STRING_BUFFER_LEN_MAX + 1) {
       const len = _PLAINTEXT_STRING_BUFFER_LEN_MAX;
-      throw new TypeError(
+      throw new Error(
         `string or binary plaintext must be at most ${len} bytes or fewer in length`,
       );
     }
@@ -791,12 +799,11 @@ export async function encrypt(
 
   // Encrypt a plaintext for storage and retrieval.
   if (key.operations.store) {
-    // A symmetric key is used to encrypt the binary plaintext or the secret
-    // shares thereof.
-    const secretKey = key as SecretKey;
+    // The data or secret shares of the data might or might not be encrypted
+    // by a symmetric key (depending on the supplied key's parameters).
     let optionalEncrypt = (uint8Array: Uint8Array) => uint8Array;
-    if ("material" in secretKey) {
-      const symmetricKey = secretKey.material as Uint8Array;
+    if ("material" in key) {
+      const symmetricKey = key.material as Uint8Array;
       optionalEncrypt = (uint8Array) => {
         try {
           const nonce = sodium.randombytes_buf(
@@ -812,13 +819,15 @@ export async function encrypt(
       };
     }
 
-    // For single-node clusters, the plaintext is encrypted using a symmetric key.
+    // For single-node clusters, only a secret key can be used to encrypt for
+    // storage. The data is encrypted using a symmetric key found in the
+    // supplied secret key.
     if (key.cluster.nodes.length === 1) {
       return _pack(optionalEncrypt(new Uint8Array(buffer)));
     }
 
-    // For multiple-node clusters, the plaintext is secret-shared using XOR
-    // (with each share symmetrically encrypted in the case of a secret key).
+    // For multiple-node clusters, a secret-shared plaintext is obtained using
+    // XOR (with each share symmetrically encrypted in the case of a secret key).
     const shares: Uint8Array[] = [];
     let aggregate = Buffer.alloc(buffer.length, 0);
     for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
@@ -833,14 +842,16 @@ export async function encrypt(
   // Encrypt (i.e., hash) a plaintext for matching.
   if (key.operations.match) {
     // The deterministic salted hash of the encoded plaintext is the ciphertext.
-    const secretKey = key as SecretKey;
     const hashed = await _sha512(
-      _concat(secretKey.material as Uint8Array, new Uint8Array(buffer)),
+      _concat(
+        (key as SecretKey).material as Uint8Array,
+        new Uint8Array(buffer),
+      ),
     );
     const ciphertext = _pack(hashed);
 
+    // For multiple-node clusters, replicate the ciphertext for each node.
     if (key.cluster.nodes.length > 1) {
-      // For multiple-node clusters, replicate the ciphertext for each node.
       return key.cluster.nodes.map((_) => ciphertext);
     }
 
@@ -849,10 +860,18 @@ export async function encrypt(
 
   // Encrypt an integer plaintext in a summation-compatible way.
   if (key.operations.sum) {
-    // For single-node clusters, the Paillier cryptosystem is used.
+    // Non-integer plaintexts cannot be encrypted for summation.
+    if (bigInt === undefined) {
+      throw new TypeError(
+        "summation-compatible encryption requires a numeric plaintext",
+      );
+    }
+
+    // For single-node clusters, the Paillier cryptosystem is used. Only a
+    // Paillier secret or public key can be used to encrypt for summation.
     if (key.cluster.nodes.length === 1) {
-      // Extract public key from secret key if a secret key was supplied and rebuild the
-      // public key object for the Paillier library.
+      // Extract public key from secret key if a secret key was supplied and
+      // rebuild the public key object for the Paillier library.
       let paillierPublicKey: paillierBigint.PublicKey;
 
       if ("publicKey" in (key.material as object)) {
@@ -871,15 +890,14 @@ export async function encrypt(
     }
 
     // For multiple-node clusters and no threshold, additive secret sharing is used.
-    const keyMultipleNodes = key as SecretKey | ClusterKey;
-    if (keyMultipleNodes.threshold === undefined) {
+    if (!(typeof (key as SecretKey | ClusterKey).threshold === "number")) {
       const masks: bigint[] =
         "material" in key
           ? (key.material as number[]).map(BigInt)
           : key.cluster.nodes.map((_) => 1n);
       const shares: bigint[] = [];
       let total = BigInt(0);
-      const quantity = keyMultipleNodes.cluster.nodes.length;
+      const quantity = key.cluster.nodes.length;
       for (let i = 0; i < quantity - 1; i++) {
         const share = await _randomInteger(
           0n,
@@ -904,9 +922,9 @@ export async function encrypt(
     // For multiple-node clusters and a threshold, Shamir's secret sharing is used.
     let shares = await _shamirsShares(
       bigInt,
-      keyMultipleNodes.cluster.nodes.length,
-      keyMultipleNodes.threshold,
+      key.cluster.nodes.length,
       _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      (key as SecretKey | ClusterKey).threshold,
     );
 
     // For multiple-node clusters, additive secret sharing is used.
@@ -931,60 +949,63 @@ export async function encrypt(
 /**
  * Return the plaintext obtained by using the supplied key to decrypt the
  * supplied ciphertext.
+ *
+ * The supplied key determines what protocol is used to perform the decryption.
+ * Invocations involving invalid argument values or types may throw an error.
+ * The type of the `key` argument is checked. Incompatibilities between the
+ * key's attribute values and the supplied `ciphertext` argument are detected.
+ * However, the values associated with those attributes (such as the cluster
+ * configuration, the cryptographic material associated with the supplied key,
+ * interdependencies between these, and so on) are not checked for validity.
  */
 export async function decrypt(
-  secretKey: SecretKey,
+  key: SecretKey | ClusterKey,
   ciphertext: string | string[] | number[] | number[][],
 ): Promise<bigint | string | Uint8Array> {
   await sodium.ready;
 
-  const error = new TypeError(
+  const error = new Error(
     "cannot decrypt the supplied ciphertext using the supplied key",
   );
 
-  // Confirm that the secret key and ciphertext have compatible cluster
-  // specifications.
-  if (secretKey.cluster.nodes.length === 1) {
+  // Identify common (i.e., not operation-specific) incompatibilities between
+  // the supplied key and ciphertext.
+  if (key.cluster.nodes.length === 1) {
     if (typeof ciphertext !== "string") {
-      throw new TypeError(
-        "secret key requires a valid ciphertext from a single-node cluster",
+      throw new Error(
+        "key requires a valid ciphertext from a single-node cluster",
       );
     }
   } else {
-    if (
-      !Array.isArray(ciphertext) ||
-      !ciphertext.every(
-        (c) =>
-          typeof c === "number" ||
-          typeof c === "string" ||
-          (Array.isArray(c) &&
-            c.length === 2 &&
-            typeof c[0] === "number" &&
-            typeof c[1] === "number"),
-      )
-    ) {
-      throw new TypeError(
-        "secret key requires a valid ciphertext from a multiple-node cluster",
+    // Key has a multiple-node cluster configuration.
+
+    // Reject ciphertexts that are not compatible with multiple-node clusters.
+    if (!Array.isArray(ciphertext)) {
+      throw new Error(
+        "key requires a valid ciphertext from a multiple-node cluster",
       );
     }
 
+    // Reject share arrays that do not contain enough shares.
     if (
-      secretKey.cluster.nodes.length !== ciphertext.length &&
-      !secretKey.operations.sum
+      ciphertext.length <
+      (typeof key.threshold === "number"
+        ? key.threshold
+        : key.cluster.nodes.length)
     ) {
-      throw new TypeError(
-        "secret key and ciphertext must have the same associated cluster size",
+      throw new Error(
+        "ciphertext must have enough shares for cluster size or threshold",
       );
     }
   }
 
   // Decrypt a value that was encrypted for storage and retrieval.
-  if (secretKey.operations.store) {
-    // A symmetric key is used to encrypt the binary plaintext or the secret
-    // shares thereof.
+  if (key.operations.store) {
+    // The plaintext or secret shares of the plaintext might or might not have
+    // been encrypted by a symmetric key (depending on the supplied key).
     let optionalDecrypt = (uint8Array: Uint8Array) => uint8Array;
-    if ("material" in secretKey) {
-      const symmetricKey = secretKey.material as Uint8Array;
+    if ("material" in key) {
+      const symmetricKey = key.material as Uint8Array;
       optionalDecrypt = (uint8Array) => {
         try {
           const nonce = uint8Array.subarray(
@@ -1002,13 +1023,31 @@ export async function decrypt(
     }
 
     // For single-node clusters, the plaintext is encrypted using a symmetric key.
-    if (secretKey.cluster.nodes.length === 1) {
+    if (key.cluster.nodes.length === 1) {
       return _decode(optionalDecrypt(_unpack(ciphertext as string)));
     }
 
-    // For multiple-node clusters, the plaintext is secret-shared using XOR
-    // (with each share symmetrically encrypted in the case of a secret key).
+    // For multiple-node clusters, the ciphertext must be an array of shares
+    // (each element being a Base64-encoded binary value). The quantity of
+    // shares is already confirmed during the common checks above.
+    if (Array.isArray(ciphertext)) {
+      if (!ciphertext.every((share) => typeof share === "string")) {
+        throw new TypeError(
+          "secret shares must all be Base64-encoded binary values",
+        );
+      }
+    }
+
+    // Each share consists of Base64-encoded (possibly encrypted) binary data.
     const shares = (ciphertext as string[]).map(_unpack).map(optionalDecrypt);
+
+    // For multiple-node clusters, the plaintext is secret-shared using XOR.
+    // Accept only arrays of XOR secret shares that all have the same length.
+    if ([...new Set(shares.map((share) => share.length))].length !== 1) {
+      throw Error("secret shares must have matching lengths");
+    }
+
+    // Build up encoded plaintext as `buffer`; its decoding is then returned.
     let buffer = Buffer.from(shares[0]);
     for (let i = 1; i < shares.length; i++) {
       buffer = Buffer.from(_xor(buffer, Buffer.from(shares[i])));
@@ -1017,11 +1056,10 @@ export async function decrypt(
   }
 
   // Decrypt a value that was encrypted in a summation-compatible way.
-  if (secretKey.operations.sum) {
+  if (key.operations.sum) {
     // For single-node clusters, the Paillier cryptosystem is used.
-    if (secretKey.cluster.nodes.length === 1) {
-      const paillierPrivateKey =
-        secretKey.material as paillierBigint.PrivateKey;
+    if (key.cluster.nodes.length === 1) {
+      const paillierPrivateKey = key.material as paillierBigint.PrivateKey;
       const plaintextFieldElement = paillierPrivateKey.decrypt(
         BigInt(`0x${ciphertext as string}`),
       );
@@ -1034,17 +1072,37 @@ export async function decrypt(
     }
 
     // For multiple-node clusters and no threshold, additive secret sharing is used.
-    if (secretKey.threshold === undefined) {
+    if (!(typeof key.threshold === "number")) {
+      // Accept only arrays of additive secret shares. Ciphertext type
+      // and quantity of shares are already confirmed by common checks.
+      if (Array.isArray(ciphertext)) {
+        if (!ciphertext.every((share) => typeof share === "number")) {
+          throw TypeError("secret shares must all be integers");
+        }
+
+        if (
+          !ciphertext.every(
+            (share) =>
+              0 <= share && share <= _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+          )
+        ) {
+          throw Error(
+            "secret shares must all be nonnegative integers less than the modulus",
+          );
+        }
+      }
+
+      // Store the decryption result in `plaintext`.
       const inverseMasks: bigint[] =
-        "material" in secretKey
-          ? (secretKey.material as number[]).map((mask) => {
+        "material" in key
+          ? (key.material as number[]).map((mask) => {
               return bcu.modPow(
                 BigInt(mask),
                 _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
                 _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
               );
             })
-          : secretKey.cluster.nodes.map((_) => 1n);
+          : key.cluster.nodes.map((_) => 1n);
       const shares = ciphertext as number[];
       let plaintext = BigInt(0);
       for (let i = 0; i < shares.length; i++) {
@@ -1068,16 +1126,57 @@ export async function decrypt(
     }
 
     // For multiple-node clusters and a threshold, Shamir's secret sharing is used.
+
+    // Accept only arrays of Shamir's secret shares (in integer form).
+    // Ciphertext type and quantity of shares are already confirmed by common
+    // checks.
+    if (Array.isArray(ciphertext)) {
+      if (!ciphertext.every((share) => Array.isArray(share))) {
+        throw TypeError("secret shares must all be arrays");
+      }
+
+      if (!ciphertext.every((share) => share.length === 2)) {
+        throw Error("secret shares must all have two components");
+      }
+
+      if (
+        !ciphertext.every(
+          (share) =>
+            1 <= share[0] && share[0] < _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        ) ||
+        [...new Set(ciphertext.map((share) => share[0]))].length !==
+          ciphertext.length
+      ) {
+        throw Error(
+          "secret share index components must be distinct positive " +
+            "integers less than the modulus",
+        );
+      }
+
+      if (
+        !ciphertext.every(
+          (share) =>
+            0 <= share[1] && share[0] < _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        )
+      ) {
+        throw Error(
+          "secret share value components must be nonnegative integers " +
+            "less than the modulus",
+        );
+      }
+    }
+
+    // Store the decryption result in `plaintext`.
     const inverseMasks: bigint[] =
-      "material" in secretKey
-        ? (secretKey.material as number[]).map((mask) => {
+      "material" in key
+        ? (key.material as number[]).map((mask) => {
             return bcu.modPow(
               BigInt(mask),
               _SECRET_SHARED_SIGNED_INTEGER_MODULUS - 2n,
               _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
             );
           })
-        : secretKey.cluster.nodes.map((_) => 1n);
+        : key.cluster.nodes.map((_) => 1n);
 
     const shares: [bigint, bigint][] = (ciphertext as [number, number][]).map(
       ([x, y], _i) => [
@@ -1103,6 +1202,8 @@ export async function decrypt(
     return plaintext;
   }
 
+  // The below should not occur unless the key's cluster or operations
+  // information is malformed/missing or the ciphertext is unsupported.
   throw error;
 }
 

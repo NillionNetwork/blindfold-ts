@@ -779,180 +779,282 @@ describe("portable representation of ciphertexts", () => {
  * Tests verifying that encryption/decryption methods return expected errors.
  */
 describe("errors involving encryption and decryption functions", () => {
-  test("errors in encryption for store operation", async () => {
-    const cluster = { nodes: [{}] };
-    const secretKey = await blindfold.SecretKey.generate(cluster, {
-      store: true,
-    });
-
+  test("errors that can occur during encryption", async () => {
     try {
-      await blindfold.encrypt(
-        secretKey,
-        Number(_PLAINTEXT_SIGNED_INTEGER_MAX) + 1,
-      );
+      const secKey = await blindfold.SecretKey.generate(cluster(1), {
+        store: true,
+      });
+      secKey.operations = {};
+      await blindfold.encrypt(secKey, 123);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError("numeric plaintext must be a valid 32-bit signed integer"),
+        Error("cannot encrypt the supplied plaintext using the supplied key"),
       );
     }
 
     try {
-      await blindfold.encrypt(
-        secretKey,
-        "x".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX + 1),
-      );
+      const secKey = await blindfold.SecretKey.generate(cluster(1), {
+        store: true,
+      });
+      secKey.material = new Uint8Array();
+      await blindfold.encrypt(secKey, 123);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError(
-          "string or binary plaintext must be at most " +
-            `${_PLAINTEXT_STRING_BUFFER_LEN_MAX} bytes or fewer in length`,
-        ),
-      );
-    }
-  });
-
-  test("errors in encryption for match operation", async () => {
-    const cluster = { nodes: [{}] };
-    const secretKey = await blindfold.SecretKey.generate(cluster, {
-      match: true,
-    });
-
-    try {
-      await blindfold.encrypt(
-        secretKey,
-        Number(_PLAINTEXT_SIGNED_INTEGER_MAX) + 1,
-      );
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("numeric plaintext must be a valid 32-bit signed integer"),
+        Error("cannot encrypt the supplied plaintext using the supplied key"),
       );
     }
 
-    try {
-      await blindfold.encrypt(
-        secretKey,
-        "x".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX + 1),
-      );
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError(
-          "string or binary plaintext must be at most " +
-            `${_PLAINTEXT_STRING_BUFFER_LEN_MAX} bytes or fewer in length`,
-        ),
-      );
-    }
-  });
+    for (const ops of [{ store: true }, { match: true }]) {
+      const secKey = await blindfold.SecretKey.generate(cluster(1), ops);
 
-  test("errors in encryption for sum operation", async () => {
-    const secretKey = secretKeyForSumWithOneNode;
-    const publicKey = await blindfold.PublicKey.generate(secretKey);
-
-    try {
-      await blindfold.encrypt(publicKey, "ABC");
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError(
-          "plaintext to encrypt for sum operation must be integer number or bigint",
-        ),
-      );
-    }
-
-    for (const plaintext of plaintextIntegerValues) {
       try {
-        await blindfold.encrypt(publicKey, plaintext);
+        await blindfold.encrypt(
+          secKey,
+          Number(_PLAINTEXT_SIGNED_INTEGER_MAX) + 1,
+        );
       } catch (e) {
         expect(e).toStrictEqual(
-          TypeError("numeric plaintext must be a valid 32-bit signed integer"),
+          Error("numeric plaintext must be a valid 32-bit signed integer"),
+        );
+      }
+
+      try {
+        await blindfold.encrypt(
+          secKey,
+          "x".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX + 1),
+        );
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            "string or binary plaintext must be at most " +
+              `${_PLAINTEXT_STRING_BUFFER_LEN_MAX} bytes or fewer in length`,
+          ),
+        );
+      }
+    }
+
+    for (const n of [1, 3]) {
+      const secKey =
+        n === 1
+          ? secretKeyForSumWithOneNode
+          : await blindfold.SecretKey.generate(cluster(n), { store: true });
+      const encKey =
+        n === 1 ? await blindfold.PublicKey.generate(secKey) : secKey;
+
+      try {
+        await blindfold.encrypt(encKey, "abc");
+      } catch (e) {
+        expect(e).toStrictEqual(
+          TypeError(
+            "summation-compatible encryption requires a numeric plaintext",
+          ),
+        );
+      }
+
+      try {
+        await blindfold.encrypt(encKey, _PLAINTEXT_SIGNED_INTEGER_MAX + 1n);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("numeric plaintext must be a valid 32-bit signed integer"),
         );
       }
     }
   });
 
-  test("errors in decryption for store operation due to cluster size mismatch", async () => {
-    const secretKeyOne = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { store: true },
-    );
-    const secretKeyTwo = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}] },
-      { store: true },
-    );
-    const secretKeyThree = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { store: true },
-    );
-
-    const ciphertextOne = await blindfold.encrypt(secretKeyOne, 123);
-    const ciphertextTwo = await blindfold.encrypt(secretKeyTwo, 123);
-
+  test("errors that can occur during decryption with an invalid key", async () => {
     try {
-      await blindfold.decrypt(secretKeyOne, ciphertextTwo);
+      const secKey = await blindfold.SecretKey.generate(cluster(1), {
+        store: true,
+      });
+      const cipher = await blindfold.encrypt(secKey, 123);
+      secKey.operations = {};
+      await blindfold.decrypt(secKey, cipher);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError(
-          "secret key requires a valid ciphertext from a single-node cluster",
-        ),
+        Error("cannot decrypt the supplied ciphertext using the supplied key"),
       );
     }
 
     try {
-      await blindfold.decrypt(secretKeyOne, ciphertextOne);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError(
-          "secret key requires a valid ciphertext from a multi-node cluster",
-        ),
+      const cluKey = await blindfold.ClusterKey.generate(
+        cluster(3),
+        { sum: true },
+        2,
       );
-    }
-
-    try {
-      await blindfold.decrypt(secretKeyThree, ciphertextTwo);
+      cluKey.threshold = 4; // Invalid key manipulation.
+      await blindfold.encrypt(cluKey, 123);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError(
-          "secret key and ciphertext must have the same associated cluster size",
+        Error(
+          "quantity of shares cannot be less than the reconstruction threshold",
         ),
       );
     }
   });
 
-  test("errors in decryption for store operation due to key mismatch", async () => {
-    const secretKey = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { store: true },
-    );
-    const secretKeyAlt = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { store: true },
-    );
-    const ciphertext = await blindfold.encrypt(secretKey, 123);
+  test("errors that can occur during decryption when the key and ciphertext conflict", async () => {
+    for (const ops of [{ store: true }, { match: true }]) {
+      const secKeyOne = await blindfold.SecretKey.generate(cluster(1), ops);
+      const secKeyTwo = await blindfold.SecretKey.generate(cluster(2), ops);
+      const secKeyThree = await blindfold.SecretKey.generate(cluster(3), ops);
+      const cipherOne = await blindfold.encrypt(secKeyOne, 123);
+      const cipherTwo = await blindfold.encrypt(secKeyTwo, 123);
 
-    try {
-      await blindfold.decrypt(secretKeyAlt, ciphertext);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError(
-          "cannot decrypt the supplied ciphertext using the supplied key",
-        ),
-      );
+      try {
+        await blindfold.decrypt(secKeyOne, cipherTwo);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key requires a valid ciphertext from a single-node cluster"),
+        );
+      }
+
+      try {
+        await blindfold.decrypt(secKeyTwo, cipherOne);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key requires a valid ciphertext from a multiple-node cluster"),
+        );
+      }
+
+      try {
+        await blindfold.decrypt(secKeyThree, cipherTwo);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            "ciphertext must have enough shares for cluster size or threshold",
+          ),
+        );
+      }
+    }
+
+    for (const n of [1, 3]) {
+      try {
+        const secKey = await blindfold.SecretKey.generate(cluster(n), {
+          store: true,
+        });
+        const secKeyAlt = await blindfold.SecretKey.generate(cluster(n), {
+          store: true,
+        });
+        const cipher = await blindfold.encrypt(secKey, 123);
+        await blindfold.decrypt(secKeyAlt, cipher);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            "cannot decrypt the supplied ciphertext using the supplied key",
+          ),
+        );
+      }
     }
   });
 
-  test("errors in decryption for sum operation  due to key mismatch", async () => {
-    const secretKey = secretKeyForSumWithOneNode;
-    const secretKeyAlt = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { sum: true },
-    );
-    const publicKey = await blindfold.PublicKey.generate(secretKey);
-    const ciphertext = await blindfold.encrypt(publicKey, 123);
-
+  test("errors that can occur during decryption when the ciphertext is invalid", async () => {
     try {
-      await blindfold.decrypt(secretKeyAlt, ciphertext);
+      const secKey = await blindfold.SecretKey.generate(cluster(2), {
+        store: true,
+      });
+      const cipher = (await blindfold.encrypt(secKey, "abc")) as number[];
+      await blindfold.decrypt(secKey, [123, cipher[1]]);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError(
-          "cannot decrypt the supplied ciphertext using the supplied key",
+        TypeError("secret shares must all be Base64-encoded binary values"),
+      );
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(cluster(2), {
+        store: true,
+      });
+      const cipherOne = (await blindfold.encrypt(secKey, "")) as string[];
+      const cipherTwo = (await blindfold.encrypt(secKey, "abc")) as string[];
+      await blindfold.decrypt(secKey, [cipherOne[0], cipherTwo[1]]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error("secret shares must have matching lengths"),
+      );
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(cluster(2), {
+        sum: true,
+      });
+      const cipher = (await blindfold.encrypt(secKey, 123)) as string[];
+      await blindfold.decrypt(secKey, ["abc", cipher[1]]);
+    } catch (e) {
+      expect(e).toStrictEqual(TypeError("secret shares must all be integers"));
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(cluster(2), {
+        sum: true,
+      });
+      const cipher = (await blindfold.encrypt(secKey, 123)) as number[];
+      await blindfold.decrypt(secKey, [-1, cipher[1]]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error(
+          "secret shares must all be nonnegative integers less than the modulus",
+        ),
+      );
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(
+        cluster(3),
+        { sum: true },
+        2,
+      );
+      await blindfold.decrypt(secKey, [123, 456]);
+    } catch (e) {
+      expect(e).toStrictEqual(TypeError("secret shares must all be arrays"));
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(
+        cluster(3),
+        { sum: true },
+        2,
+      );
+      const cipher = (await blindfold.encrypt(secKey, 123)) as number[][];
+      await blindfold.decrypt(secKey, [cipher[0].slice(1), cipher[1]]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error("secret shares must all have two components"),
+      );
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(
+        cluster(3),
+        { sum: true },
+        2,
+      );
+      const cipher = (await blindfold.encrypt(secKey, 123)) as number[][];
+      await blindfold.decrypt(secKey, [
+        [1, cipher[0][1]],
+        [1, cipher[1][1]],
+      ]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error(
+          "secret share index components must be distinct positive integers " +
+            "less than the modulus",
+        ),
+      );
+    }
+
+    try {
+      const secKey = await blindfold.SecretKey.generate(
+        cluster(3),
+        { sum: true },
+        2,
+      );
+      const cipher = (await blindfold.encrypt(secKey, 123)) as number[][];
+      await blindfold.decrypt(secKey, [[cipher[0][0], -1], cipher[1]]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error(
+          "secret share value components must be nonnegative integers " +
+            "less than the modulus",
         ),
       );
     }
