@@ -34,11 +34,11 @@ const _PLAINTEXT_SIGNED_INTEGER_MAX: bigint = 2n ** 31n - 1n;
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX: number = 4096;
 
 /**
- * Helper function to get the crypto object with proper validation.
+ * Attempt to obtain Web Crypto API object with proper validation.
  */
-function getCrypto(): Crypto {
+function _getCrypto(): Crypto {
   if (!globalThis.crypto) {
-    throw new Error("Crypto web-api not available but required");
+    throw new Error("Web Crypto API is not available");
   }
   return globalThis.crypto;
 }
@@ -85,12 +85,12 @@ function _equalKeys(a: Array<string>, b: Array<string>) {
  * Return a SHA-512 hash of the supplied string.
  */
 async function _sha512(bytes: Uint8Array): Promise<Uint8Array> {
-  const buffer = await getCrypto().subtle.digest("SHA-512", bytes);
+  const buffer = await _getCrypto().subtle.digest("SHA-512", bytes);
   return new Uint8Array(buffer);
 }
 
 /**
- * Return a random byte sequence of the specified length (using the seed if one
+ * Return a random byte array of the specified length (using the seed if one
  * is supplied).
  */
 async function _randomBytes(
@@ -109,6 +109,7 @@ async function _randomBytes(
         new Uint8Array(0),
         length,
       );
+      /* v8 ignore next 3 */ // This scenario is outside the scope of tests.
     } catch (error) {
       throw new Error(`failed to derive key from seed: ${error}`);
     }
@@ -126,10 +127,12 @@ async function _randomInteger(
   maximum: bigint,
   seed: Uint8Array | null = null,
 ): Promise<bigint> {
+  /* v8 ignore next 3 */ // Invocation arguments are always constants.
   if (minimum < 0 || minimum > 1) {
     throw new RangeError("minimum must be 0 or 1");
   }
 
+  /* v8 ignore next 5 */ // Invocation arguments are always constants.
   if (maximum <= minimum || maximum >= _SECRET_SHARED_SIGNED_INTEGER_MODULUS) {
     throw new RangeError(
       "maximum must be greater than the minimum and less than the modulus",
@@ -137,7 +140,7 @@ async function _randomInteger(
   }
 
   const range = maximum - minimum;
-  let integer = null;
+  let integer: bigint | null = null;
   let index = 0n;
   while (integer === null || integer > range) {
     const index_bytes = Buffer.alloc(8);
@@ -159,7 +162,7 @@ async function _randomInteger(
 }
 
 /**
- * Evaluates polynomial (represented as a sequence of coefficients) at `x`.
+ * Evaluates polynomial (represented as an array of coefficients) at `x`.
  */
 function _shamirsEval(
   coefficients: bigint[],
@@ -183,6 +186,7 @@ async function _shamirsShares(
   threshold: number,
   prime: bigint,
 ): Promise<[bigint, bigint][]> {
+  /* v8 ignore next 5 */ // All invocations supply an explicit threshold.
   if (threshold > quantity) {
     throw new Error(
       "quantity of shares cannot be less than the reconstruction threshold",
@@ -206,7 +210,7 @@ async function _shamirsShares(
 }
 
 /**
- * Recover the plaintext value from the supplied sequence of Shamir's secret shares.
+ * Recover the plaintext value from the supplied array of Shamir's secret shares.
  */
 function _shamirsRecover(shares: bigint[][], prime: bigint): bigint {
   let secret = 0n;
