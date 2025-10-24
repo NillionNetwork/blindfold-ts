@@ -291,14 +291,18 @@ function _decode(bytes: Uint8Array): bigint | string | Uint8Array {
 /**
  * Cluster configuration information.
  */
-interface Cluster {
+export class Cluster {
   nodes: object[];
+
+  constructor(configuration: { nodes: object[] }) {
+    this.nodes = configuration.nodes;
+  }
 }
 
 /**
- * Record indicating what operations on ciphertexts are supported.
+ * Specification identifying what operations on ciphertexts a key supports.
  */
-interface Operations {
+export class Operations {
   store?: boolean;
   match?: boolean;
   sum?: boolean;
