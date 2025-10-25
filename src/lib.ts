@@ -1212,7 +1212,9 @@ export async function decrypt(
  * clusters into secret shares of that object. Shallow copies are created
  * whenever possible.
  */
-export function allot(document: object): object[] {
+export function allot(
+  document: boolean | number | string | object | null,
+): (boolean | number | string | object | null)[] {
   // Values and `null` are base cases.
   if (
     typeof document === "boolean" ||
@@ -1234,9 +1236,7 @@ export function allot(document: object): object[] {
         if (multiplicity === 1) {
           multiplicity = result.length;
         } else if (multiplicity !== result.length) {
-          throw new TypeError(
-            "number of shares in subdocument is not consistent",
-          );
+          throw new Error("number of shares in subdocument is not consistent");
         }
       }
     }
@@ -1259,7 +1259,7 @@ export function allot(document: object): object[] {
     // that must be allotted to nodes.
     if ("%allot" in document) {
       if (Object.keys(document).length !== 1) {
-        throw new TypeError("allotment must only have one key");
+        throw new Error("allotment must only have one key");
       }
 
       const items = document["%allot"] as Array<object>;
@@ -1304,9 +1304,7 @@ export function allot(document: object): object[] {
         if (multiplicity === 1) {
           multiplicity = result.length;
         } else if (multiplicity !== result.length) {
-          throw new TypeError(
-            "number of shares in subdocument is not consistent",
-          );
+          throw new Error("number of shares in subdocument is not consistent");
         }
       }
     }
@@ -1323,8 +1321,10 @@ export function allot(document: object): object[] {
     }
 
     return shares;
+    /* v8 ignore next */ // The closing brace is unreachable due to `return`.
   }
 
+  /* v8 ignore next 4 */ // Type checking ensures that the below is unreachable.
   throw new TypeError(
     "boolean, number, string, array, null, or object expected",
   );
@@ -1337,9 +1337,12 @@ export function allot(document: object): object[] {
  */
 export async function unify(
   secretKey: SecretKey,
-  documents: object[],
+  documents: (boolean | number | string | object | null)[],
   ignore: string[] = ["_created", "_updated"],
-): Promise<object | Array<object>> {
+): Promise<
+  | (boolean | number | string | object | null)
+  | (boolean | number | string | object | null)[]
+> {
   if (documents.length === 1) {
     return documents[0];
   }
@@ -1392,12 +1395,12 @@ export async function unify(
 
     // Documents are general-purpose key-value mappings.
     const keys: Array<string> = Object.keys(documents[0]);
-    const _zip = (a: Array<string>, b: Array<string>) =>
-      a.map((k, i) => [k, b[i]]);
     if (
       documents.every((document) => _equalKeys(keys, Object.keys(document)))
     ) {
-      const results: { [k: string]: object } = {};
+      const results: {
+        [k: string]: boolean | number | string | object | null;
+      } = {};
       for (const key in documents[0]) {
         // For ignored keys, unification is not performed and they are
         // omitted from the results.
@@ -1425,5 +1428,5 @@ export async function unify(
     return documents[0];
   }
 
-  throw new TypeError("array of compatible document shares expected");
+  throw new Error("array of compatible document shares expected");
 }

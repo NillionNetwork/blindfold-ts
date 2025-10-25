@@ -46,7 +46,7 @@ const secretKeyForSumWithOneNode = await blindfold.SecretKey.generate(
  * Convert an object that may contain `bigint` values to JSON (because
  * `JSON.stringify` cannot convert `bigint` values automatically).
  */
-function toJSON(o: object): string {
+function toJSON(o: boolean | number | string | null | object): string {
   return JSON.stringify(o, (_, v) =>
     typeof v === "bigint" ? v.toString() : v,
   );
@@ -1163,6 +1163,17 @@ describe("end-to-end workflows involving secure computation", () => {
 describe("end-to-end workflows involving share allotment and unification", () => {
   const cluster_ = cluster(3);
 
+  test("allotment and unification of values for a multi-node cluster", async () => {
+    for (const data of [true, 123, "abc", null]) {
+      const secretKey = await blindfold.SecretKey.generate(cluster_, {
+        store: true,
+      });
+      const shares = blindfold.allot(data);
+      const decrypted = await blindfold.unify(secretKey, shares);
+      expect(decrypted).toEqual(data);
+    }
+  });
+
   test("allotment and unification of arrays for a multi-node cluster", async () => {
     const data = [12n, 34n, 56n, 78n, 90n];
     const secretKey = await blindfold.SecretKey.generate(cluster_, {
@@ -1280,5 +1291,56 @@ describe("end-to-end workflows involving share allotment and unification", () =>
 
     const decrypted = await blindfold.unify(secretKey, shares);
     expect(toJSON(decrypted)).toEqual(toJSON(data));
+  });
+});
+
+/**
+ * Tests verifying that allotment/unification functions return expected errors.
+ */
+describe("errors involving allotment and unification functions", () => {
+  test("errors that can occur during allotment", async () => {
+    try {
+      blindfold.allot({ age: { "%allot": [1, 2, 3], extra: "ABC" } });
+    } catch (e) {
+      expect(e).toStrictEqual(Error("allotment must only have one key"));
+    }
+
+    try {
+      blindfold.allot({
+        id: 0,
+        age: { "%allot": [1, 2, 3] },
+        dat: { loc: { "%allot": [4, 5] } },
+      });
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error("number of shares in subdocument is not consistent"),
+      );
+    }
+
+    try {
+      blindfold.allot([
+        0,
+        { "%allot": [1, 2, 3] },
+        { loc: { "%allot": [4, 5] } },
+      ]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error("number of shares in subdocument is not consistent"),
+      );
+    }
+  });
+
+  test("errors that can occur during unification", async () => {
+    const secretKey = await blindfold.SecretKey.generate(cluster(3), {
+      store: true,
+    });
+
+    try {
+      await blindfold.unify(secretKey, [123, "abc"]);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error("array of compatible document shares expected"),
+      );
+    }
   });
 });
