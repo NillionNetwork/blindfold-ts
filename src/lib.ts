@@ -75,9 +75,8 @@ function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 /**
  * Helper function to compare two arrays of strings.
  */
-function _equalKeys(a: Array<string>, b: Array<string>) {
-  const zip = (a: Array<string>, b: Array<string>) =>
-    a.map((k, i) => [k, b[i]]);
+function _equalKeys(a: string[], b: string[]) {
+  const zip = (a: string[], b: string[]) => a.map((k, i) => [k, b[i]]);
   return zip(a, b).every((pair) => pair[0] === pair[1]);
 }
 
@@ -402,7 +401,7 @@ export class SecretKey {
         for (let i = 0n; i < secretKey.cluster.nodes.length; i++) {
           const indexBytes = Buffer.alloc(8);
           indexBytes.writeBigInt64LE(i, 0);
-          (secretKey.material as Array<number>).push(
+          (secretKey.material as number[]).push(
             Number(
               await _randomInteger(
                 1n,
@@ -1226,7 +1225,7 @@ export function allot(
   }
 
   if (Array.isArray(document)) {
-    const results = (document as Array<object>).map(allot);
+    const results = (document as object[]).map(allot);
 
     // Determine the number of shares that must be created.
     let multiplicity = 1;
@@ -1262,7 +1261,7 @@ export function allot(
         throw new Error("allotment must only have one key");
       }
 
-      const items = document["%allot"] as Array<object>;
+      const items = document["%allot"] as object[];
       if (
         items.every((item) => typeof item === "number") ||
         items.every((item) => typeof item === "string")
@@ -1283,7 +1282,7 @@ export function allot(
       );
       const shares = [];
       for (let i = 0; i < sharesArrays.length; i++) {
-        const sharesCurrent: Array<object> = sharesArrays[i] as Array<object>;
+        const sharesCurrent: object[] = sharesArrays[i] as object[];
         shares.push({
           "%share": sharesCurrent.map(
             (share) => (share as { "%share": object })["%share"],
@@ -1314,7 +1313,7 @@ export function allot(
     for (let i = 0; i < multiplicity; i++) {
       const share: { [k: string]: object } = {};
       for (const key in results) {
-        const resultsForKey = results[key] as Array<object>;
+        const resultsForKey = results[key] as object[];
         share[key] = resultsForKey[resultsForKey.length === 1 ? 0 : i];
       }
       shares.push(share);
@@ -1377,9 +1376,9 @@ export async function unify(
       }
 
       // Document shares consisting of nested lists of shares.
-      const unwrapped: Array<Array<object>> = [];
+      const unwrapped: object[][] = [];
       for (let i = 0; i < documents.length; i++) {
-        unwrapped.push(documents[i]["%share"] as Array<object>);
+        unwrapped.push(documents[i]["%share"] as object[]);
       }
       const length = unwrapped[0].length;
       const results = [];
@@ -1394,7 +1393,7 @@ export async function unify(
     }
 
     // Documents are general-purpose key-value mappings.
-    const keys: Array<string> = Object.keys(documents[0]);
+    const keys: string[] = Object.keys(documents[0]);
     if (
       documents.every((document) => _equalKeys(keys, Object.keys(document)))
     ) {

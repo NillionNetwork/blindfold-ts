@@ -97,9 +97,7 @@ function shamirsMul(
 /**
  * Convert a large binary test output into a short hash.
  */
-async function toHashBase64(
-  output: Uint8Array | Array<number>,
-): Promise<string> {
+async function toHashBase64(output: Uint8Array | number[]): Promise<string> {
   let uint8Array: Uint8Array;
 
   if (Array.isArray(output) && output.every((n) => typeof n === "number")) {
@@ -120,9 +118,8 @@ async function toHashBase64(
 /**
  * Compare two arrays of object keys (i.e., strings).
  */
-function equalKeys(a: Array<string>, b: Array<string>): boolean {
-  const zip = (a: Array<string>, b: Array<string>) =>
-    a.map((k, i) => [k, b[i]]);
+function equalKeys(a: string[], b: string[]): boolean {
+  const zip = (a: string[], b: string[]) => a.map((k, i) => [k, b[i]]);
   return zip(a, b).every((pair) => pair[0] === pair[1]);
 }
 
@@ -1098,18 +1095,9 @@ describe("end-to-end workflows involving secure computation", () => {
       sum: true,
     });
 
-    const [a0, a1, a2] = (await blindfold.encrypt(
-      secretKey,
-      123,
-    )) as Array<number>;
-    const [b0, b1, b2] = (await blindfold.encrypt(
-      secretKey,
-      456,
-    )) as Array<number>;
-    const [c0, c1, c2] = (await blindfold.encrypt(
-      secretKey,
-      789,
-    )) as Array<number>;
+    const [a0, a1, a2] = (await blindfold.encrypt(secretKey, 123)) as number[];
+    const [b0, b1, b2] = (await blindfold.encrypt(secretKey, 456)) as number[];
+    const [c0, c1, c2] = (await blindfold.encrypt(secretKey, 789)) as number[];
 
     const modulus = _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
     const [r0, r1, r2] = [
@@ -1130,15 +1118,18 @@ describe("end-to-end workflows involving secure computation", () => {
       3,
     );
 
-    const [a0, a1, a2] = (await blindfold.encrypt(secretKey, 123)) as Array<
-      [number, number]
-    >;
-    const [b0, b1, b2] = (await blindfold.encrypt(secretKey, 456)) as Array<
-      [number, number]
-    >;
-    const [c0, c1, c2] = (await blindfold.encrypt(secretKey, 789)) as Array<
-      [number, number]
-    >;
+    const [a0, a1, a2] = (await blindfold.encrypt(secretKey, 123)) as [
+      number,
+      number,
+    ][];
+    const [b0, b1, b2] = (await blindfold.encrypt(secretKey, 456)) as [
+      number,
+      number,
+    ][];
+    const [c0, c1, c2] = (await blindfold.encrypt(secretKey, 789)) as [
+      number,
+      number,
+    ][];
 
     const modulus = _SECRET_SHARED_SIGNED_INTEGER_MODULUS;
     const [r0, r1, r2] = shamirsAdd(
@@ -1183,7 +1174,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
     for (let i = 0; i < data.length; i++) {
       encrypted.push({ "%allot": await blindfold.encrypt(secretKey, data[i]) });
     }
-    const shares = blindfold.allot(encrypted) as Array<Array<object>>;
+    const shares = blindfold.allot(encrypted) as object[][];
     expect(shares.length).toEqual(3);
     expect(shares.every((share) => share.length === data.length)).toEqual(true);
 
@@ -1208,7 +1199,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
         "%allot": await blindfold.encrypt(secretKey, data[key]),
       };
     }
-    const shares = blindfold.allot(encrypted) as Array<Array<object>>;
+    const shares = blindfold.allot(encrypted) as object[][];
     expect(shares.length).toEqual(3);
 
     const keys = Object.keys(data);
@@ -1239,7 +1230,7 @@ describe("end-to-end workflows involving share allotment and unification", () =>
         { "%allot": await blindfold.encrypt(secretKey, data[key][2]) },
       ];
     }
-    const shares = blindfold.allot(encrypted) as Array<Array<object>>;
+    const shares = blindfold.allot(encrypted) as object[][];
     expect(shares.length).toEqual(3);
 
     const decrypted = await blindfold.unify(secretKey, shares);
@@ -1260,25 +1251,19 @@ describe("end-to-end workflows involving share allotment and unification", () =>
     for (const key of ["a", "b"]) {
       encrypted[key] = {
         "%allot": [
-          await blindfold.encrypt(secretKey, (data[key] as Array<bigint>)[0]),
+          await blindfold.encrypt(secretKey, (data[key] as bigint[])[0]),
           [
-            await blindfold.encrypt(
-              secretKey,
-              (data[key] as Array<Array<bigint>>)[1][0],
-            ),
-            await blindfold.encrypt(
-              secretKey,
-              (data[key] as Array<Array<bigint>>)[1][1],
-            ),
+            await blindfold.encrypt(secretKey, (data[key] as bigint[][])[1][0]),
+            await blindfold.encrypt(secretKey, (data[key] as bigint[][])[1][1]),
           ],
         ],
       };
     }
     encrypted.c = null;
     encrypted.d = 1.23;
-    const shares = blindfold.allot(encrypted) as Array<{
+    const shares = blindfold.allot(encrypted) as {
       [key: string]: string | object;
-    }>;
+    }[];
     expect(shares.length).toEqual(3);
 
     // Introduce entries that should be ignored.
