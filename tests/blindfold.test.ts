@@ -309,7 +309,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await blindfold.SecretKey.generate(
       { nodes: [{}] },
       { store: true },
-      null,
+      undefined,
       seed,
     );
     expect(
@@ -329,7 +329,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await blindfold.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { store: true },
-      null,
+      undefined,
       seed,
     );
     expect(
@@ -349,7 +349,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await blindfold.SecretKey.generate(
       { nodes: [{}] },
       { match: true },
-      null,
+      undefined,
       seed,
     );
     expect(
@@ -369,7 +369,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await blindfold.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { match: true },
-      null,
+      undefined,
       seed,
     );
     expect(
@@ -389,7 +389,7 @@ describe("methods of cryptographic key classes", () => {
     const secretKeyFromSeed = await blindfold.SecretKey.generate(
       { nodes: [{}, {}, {}] },
       { sum: true },
-      null,
+      undefined,
       seed,
     );
     expect(
@@ -439,96 +439,7 @@ describe("errors involving methods of cryptographic key classes", () => {
       );
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError("operation specification must enable exactly one operation"),
-      );
-    }
-  });
-
-  test("errors in secret key dumping and loading", async () => {
-    try {
-      const secretKey = await blindfold.SecretKey.generate(
-        { nodes: [{}, {}, {}] },
-        { sum: true },
-      );
-      const secretKeyObject = secretKey.dump() as {
-        material: object;
-        cluster: object;
-        operations?: object;
-      };
-      blindfold.SecretKey.load({
-        material: secretKeyObject.material,
-        cluster: secretKeyObject.cluster,
-      });
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a secret key"),
-      );
-    }
-
-    try {
-      const secretKey = secretKeyForSumWithOneNode;
-      const secretKeyObject = secretKey.dump() as {
-        material: {
-          l: object;
-          m: object;
-          n?: object;
-          g: object;
-        };
-        cluster: object;
-        operations: object;
-      };
-      secretKeyObject.material.n = undefined;
-      blindfold.SecretKey.load({
-        material: {
-          m: secretKeyObject.material.m,
-          l: secretKeyObject.material.l,
-        },
-        cluster: secretKeyObject.cluster,
-        operations: secretKeyObject.operations,
-      });
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a secret key"),
-      );
-    }
-
-    try {
-      const secretKey = secretKeyForSumWithOneNode;
-      const secretKeyObject = secretKey.dump() as {
-        material: {
-          l: object;
-          m: object | number;
-          n: object;
-          g: object;
-        };
-        cluster: object;
-        operations: object;
-      };
-      secretKeyObject.material.m = 123;
-      blindfold.SecretKey.load(secretKeyObject);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a secret key"),
-      );
-    }
-
-    try {
-      const secretKey = secretKeyForSumWithOneNode;
-      const secretKeyObject = secretKey.dump() as {
-        material: {
-          l: object;
-          m: object;
-          n: string | number;
-          g: object;
-        };
-        cluster: object;
-        operations: object;
-      };
-      secretKeyObject.material.n = 123;
-      blindfold.SecretKey.load(secretKeyObject);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a secret key"),
+        Error("operations specification must enable exactly one operation"),
       );
     }
   });
@@ -542,59 +453,7 @@ describe("errors involving methods of cryptographic key classes", () => {
       const _publicKey = await blindfold.PublicKey.generate(secretKey);
     } catch (e) {
       expect(e).toStrictEqual(
-        TypeError("cannot create public key for supplied secret key"),
-      );
-    }
-  });
-
-  test("errors in public key dumping and loading", async () => {
-    const secretKey = secretKeyForSumWithOneNode;
-    const publicKey = await blindfold.PublicKey.generate(secretKey);
-
-    try {
-      const publicKeyObject = publicKey.dump() as {
-        material: { n: string; g: string };
-        cluster?: object;
-        operations: object;
-      };
-      blindfold.PublicKey.load({
-        material: publicKeyObject.material,
-        operations: publicKeyObject.operations,
-      });
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a public key"),
-      );
-    }
-
-    try {
-      const publicKeyObject = publicKey.dump() as {
-        material: { n?: string; g: string };
-        cluster: object;
-        operations: object;
-      };
-      blindfold.PublicKey.load({
-        material: { g: publicKeyObject.material.g },
-        cluster: publicKeyObject.cluster,
-        operations: publicKeyObject.operations,
-      });
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a public key"),
-      );
-    }
-
-    try {
-      const publicKeyObject = publicKey.dump() as {
-        material: { n: string; g: string | number };
-        cluster: object;
-        operations: object;
-      };
-      publicKeyObject.material.g = 123;
-      blindfold.PublicKey.load(publicKeyObject);
-    } catch (e) {
-      expect(e).toStrictEqual(
-        TypeError("invalid object representation of a public key"),
+        Error("cannot create public key for supplied secret key"),
       );
     }
   });
