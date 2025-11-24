@@ -28,6 +28,21 @@ const _PLAINTEXT_SIGNED_INTEGER_MAX: bigint = 2n ** 31n - 1n;
  */
 const _PLAINTEXT_STRING_BUFFER_LEN_MAX: number = 4096;
 
+/**
+ * Seeds used for tests confirming that key generation from seeds is consistent.
+ */
+const seedValues = [
+  "012345678901234567890123456789012345678901234567890123456789",
+  new TextEncoder().encode(
+    "012345678901234567890123456789012345678901234567890123456789",
+  ),
+  Buffer.from(
+    new TextEncoder().encode(
+      "012345678901234567890123456789012345678901234567890123456789",
+    ),
+  ),
+];
+
 // biome-ignore format: Concise list of test case parameter values.
 const plaintextIntegerValues = [
   _PLAINTEXT_SIGNED_INTEGER_MIN, -123n, 0n, 123n, _PLAINTEXT_SIGNED_INTEGER_MAX,
@@ -180,251 +195,159 @@ describe("errors that can occur within utility functions", () => {
 });
 
 /**
- * Seed used for tests confirming that key generation from seeds is consistent.
- */
-const seed = "012345678901234567890123456789012345678901234567890123456789";
-
-/**
  * Tests of methods of cryptographic key classes.
  */
 describe("methods of cryptographic key classes", () => {
-  const clusters = [{ nodes: [{}] }, { nodes: [{}, {}, {}] }];
-  for (const cluster of clusters) {
-    test("generate, dump, JSONify, and load key for store operation", async () => {
-      const secretKey = await blindfold.SecretKey.generate(cluster, {
+  test("generate, dump, JSONify, and load for the store operation", async () => {
+    for (const [Key, cluster_] of [
+      [blindfold.SecretKey, cluster(1)],
+      [blindfold.SecretKey, cluster(3)],
+      [blindfold.ClusterKey, cluster(3)],
+    ] as [
+      typeof blindfold.SecretKey | typeof blindfold.ClusterKey,
+      blindfold.Cluster,
+    ][]) {
+      const key = await Key.generate(cluster_, {
         store: true,
       });
 
-      const secretKeyObject = JSON.parse(JSON.stringify(secretKey.dump()));
-      const secretKeyLoaded = blindfold.SecretKey.load(secretKeyObject);
+      const keyObject = JSON.parse(JSON.stringify(key.dump()));
+      const keyLoaded = Key.load(keyObject);
+      expect(keyLoaded).toBeInstanceOf(Key);
+      expect(keyLoaded).toEqual(key);
+    }
+  });
 
-      const plaintext = "abc";
-      const ciphertext = await blindfold.encrypt(secretKey, plaintext);
-      const decrypted = await blindfold.decrypt(secretKeyLoaded, ciphertext);
-      expect(decrypted).toEqual(plaintext);
-    });
-
-    test("generate, dump, JSONify, and load key for match operation", async () => {
-      const secretKey = await blindfold.SecretKey.generate(cluster, {
+  test("generate, dump, JSONify, and load for the match operation", async () => {
+    for (const cluster_ of [cluster(1), cluster(3)]) {
+      const secretKey = await blindfold.SecretKey.generate(cluster_, {
         match: true,
       });
 
       const secretKeyObject = JSON.parse(JSON.stringify(secretKey.dump()));
       const secretKeyLoaded = blindfold.SecretKey.load(secretKeyObject);
+      expect(secretKeyLoaded).toBeInstanceOf(blindfold.SecretKey);
+      expect(secretKeyLoaded).toEqual(secretKey);
+    }
+  });
 
-      const plaintext = "abc";
-      const ciphertext = await blindfold.encrypt(secretKey, plaintext);
-      const ciphertextViaLoaded = await blindfold.encrypt(
-        secretKeyLoaded,
-        plaintext,
-      );
-      expect(ciphertextViaLoaded).toEqual(ciphertext);
-    });
-  }
-
-  test("generate, dump, JSONify, and load keys for sum operation with single node", async () => {
-    const _cluster = { nodes: [{}] };
+  test("generate, dump, JSONify, and load for the sum operation with single node", async () => {
     const secretKey = secretKeyForSumWithOneNode;
     const publicKey = await blindfold.PublicKey.generate(secretKey);
 
     const secretKeyObject = JSON.parse(JSON.stringify(secretKey.dump()));
     const secretKeyLoaded = blindfold.SecretKey.load(secretKeyObject);
+    expect(secretKeyLoaded).toBeInstanceOf(blindfold.SecretKey);
+    expect(secretKeyLoaded).toEqual(secretKey);
 
     const publicKeyObject = JSON.parse(JSON.stringify(publicKey.dump()));
-    const publicKeyLoaded = blindfold.PublicKey.load(publicKeyObject);
-
-    const plaintext = BigInt(123);
-    const ciphertext = await blindfold.encrypt(publicKeyLoaded, plaintext);
-    const decrypted = await blindfold.decrypt(secretKeyLoaded, ciphertext);
-    expect(decrypted).toEqual(plaintext);
+    const publicKeyLoaded = blindfold.PublicKey.load(
+      publicKeyObject,
+    ) as blindfold.PublicKey;
+    expect(publicKeyLoaded).toBeInstanceOf(blindfold.PublicKey);
+    expect(publicKeyLoaded).toEqual(publicKey);
   });
 
-  test("generate, dump, JSONify, and load secret key for sum operation with multiple nodes", async () => {
-    const cluster = { nodes: [{}, {}, {}] };
-    const secretKey = await blindfold.SecretKey.generate(cluster, {
-      sum: true,
-    });
-
-    const secretKeyObject = JSON.parse(JSON.stringify(secretKey.dump()));
-    const secretKeyLoaded = blindfold.SecretKey.load(secretKeyObject);
-
-    const plaintext = BigInt(123);
-    const ciphertext = await blindfold.encrypt(secretKey, plaintext);
-    const decrypted = await blindfold.decrypt(secretKeyLoaded, ciphertext);
-    expect(decrypted).toEqual(plaintext);
+  test("generate, dump, JSONify, and load for the sum operation with multiple (without/with threshold) nodes", async () => {
+    for (const [Key, cluster_, threshold] of [
+      [blindfold.SecretKey, cluster(3), undefined],
+      [blindfold.SecretKey, cluster(3), 2],
+      [blindfold.SecretKey, cluster(3), 3],
+      [blindfold.ClusterKey, cluster(3), undefined],
+      [blindfold.ClusterKey, cluster(3), 2],
+      [blindfold.ClusterKey, cluster(3), 3],
+    ] as [
+      typeof blindfold.SecretKey | typeof blindfold.ClusterKey,
+      blindfold.Cluster,
+      number,
+    ][]) {
+      const key = await Key.generate(cluster_, { sum: true }, threshold);
+      const keyObject = JSON.parse(JSON.stringify(key.dump()));
+      const keyLoaded = Key.load(keyObject);
+      expect(keyLoaded).toBeInstanceOf(Key);
+      expect(keyLoaded).toEqual(key);
+    }
   });
 
-  test("generate, dump, JSONify, and load cluster key for sum operation with multiple nodes", async () => {
-    const cluster = { nodes: [{}, {}, {}] };
-    const clusterKey = await blindfold.ClusterKey.generate(cluster, {
-      sum: true,
-    });
+  test("key generation from seed for the store operation with single and multiple nodes", async () => {
+    for (const cluster_ of [cluster(1), cluster(3)]) {
+      for (const seed of seedValues) {
+        const secretKeyFromSeed = await blindfold.SecretKey.generate(
+          cluster_,
+          { store: true },
+          undefined,
+          seed,
+        );
+        expect(
+          await toHashBase64(secretKeyFromSeed.material as Uint8Array),
+        ).toStrictEqual("2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=");
+      }
 
-    const clusterKeyObject = JSON.parse(JSON.stringify(clusterKey.dump()));
-    const clusterKeyLoaded = blindfold.ClusterKey.load(clusterKeyObject);
-    expect(clusterKeyLoaded instanceof blindfold.ClusterKey).toEqual(true);
-
-    const plaintext = BigInt(123);
-    const ciphertext = await blindfold.encrypt(clusterKey, plaintext);
-    const decrypted = await blindfold.decrypt(clusterKeyLoaded, ciphertext);
-    expect(decrypted).toEqual(plaintext);
+      const secretKey = await blindfold.SecretKey.generate(cluster_, {
+        store: true,
+      });
+      expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
+        "2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=",
+      );
+    }
   });
 
-  test("generate, dump, JSONify, and load secret key for sum operation with multiple nodes and threshold", async () => {
-    const cluster = { nodes: [{}, {}, {}] };
-    const secretKey = await blindfold.SecretKey.generate(
-      cluster,
-      { sum: true },
-      3,
-    );
+  test("key generation from seed for the match operation with single and multiple nodes", async () => {
+    for (const cluster_ of [cluster(1), cluster(3)]) {
+      for (const seed of seedValues) {
+        const secretKeyFromSeed = await blindfold.SecretKey.generate(
+          cluster_,
+          { match: true },
+          undefined,
+          seed,
+        );
+        expect(
+          await toHashBase64(secretKeyFromSeed.material as Uint8Array),
+        ).toStrictEqual("qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=");
+      }
 
-    const secretKeyObject = JSON.parse(JSON.stringify(secretKey.dump()));
-    const secretKeyLoaded = blindfold.SecretKey.load(secretKeyObject);
-
-    const plaintext = BigInt(123);
-    const ciphertext = await blindfold.encrypt(secretKey, plaintext);
-    const decrypted = await blindfold.decrypt(secretKeyLoaded, ciphertext);
-    expect(decrypted).toEqual(plaintext);
+      const secretKey = await blindfold.SecretKey.generate(cluster_, {
+        match: true,
+      });
+      expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
+        "qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=",
+      );
+    }
   });
 
-  test("generate, dump, JSONify, and load cluster key for sum operation with multiple nodes and threshold", async () => {
-    const cluster = { nodes: [{}, {}, {}] };
-    const clusterKey = await blindfold.ClusterKey.generate(
-      cluster,
-      { sum: true },
-      3,
-    );
+  test("key generation from seed for the sum operation with multiple (without/with threshold) nodes", async () => {
+    for (const [n, hashFromMaterial] of [
+      [2, "GmmTqmaeT0Uhe1h94yJHEQXG45beO6t+z/m9EBZCNAY="],
+      [3, "L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84="],
+      [4, "xUiGGrAEfTZpNl2aIe2V+Vk+HCSTElREbeXNV/hePJg="],
+      [5, "4k7lscMoSb8WOcIcChURfE6GfIe5gN+Hc3MiQeD4tKI="],
+    ] as [number, string][]) {
+      for (const threshold of ([undefined] as (undefined | number)[]).concat(
+        new Array(n).fill(0).map((_, i) => i + 1),
+      )) {
+        for (const seed of seedValues) {
+          const secretKeyFromSeed = await blindfold.SecretKey.generate(
+            cluster(n),
+            { sum: true },
+            threshold,
+            seed,
+          );
+          expect(
+            await toHashBase64(secretKeyFromSeed.material as number[]),
+          ).toStrictEqual(hashFromMaterial);
+        }
 
-    const clusterKeyObject = JSON.parse(JSON.stringify(clusterKey.dump()));
-    const clusterKeyLoaded = blindfold.ClusterKey.load(clusterKeyObject);
-    expect(clusterKeyLoaded instanceof blindfold.ClusterKey).toEqual(true);
-
-    const plaintext = BigInt(123);
-    const ciphertext = await blindfold.encrypt(clusterKey, plaintext);
-    const decrypted = await blindfold.decrypt(clusterKeyLoaded, ciphertext);
-    expect(decrypted).toEqual(plaintext);
+        const secretKey = await blindfold.SecretKey.generate(
+          cluster(n),
+          { sum: true },
+          threshold,
+        );
+        expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
+          hashFromMaterial,
+        );
+      }
+    }
   });
-
-  test("generate key from seed for store operation with single node", async () => {
-    const secretKeyFromSeed = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { store: true },
-      undefined,
-      seed,
-    );
-    expect(
-      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=");
-
-    const secretKey = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { store: true },
-    );
-    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=",
-    );
-  });
-
-  test("generate key from seed for store operation with multiple nodes", async () => {
-    const secretKeyFromSeed = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { store: true },
-      undefined,
-      seed,
-    );
-    expect(
-      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=");
-
-    const secretKey = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { store: true },
-    );
-    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "2bW6BLeeCTqsCqrijSkBBPGjDb/gzjtGnFZt0nsZP8w=",
-    );
-  });
-
-  test("generate key from seed for match operation with single node", async () => {
-    const secretKeyFromSeed = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { match: true },
-      undefined,
-      seed,
-    );
-    expect(
-      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=");
-
-    const secretKey = await blindfold.SecretKey.generate(
-      { nodes: [{}] },
-      { match: true },
-    );
-    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=",
-    );
-  });
-
-  test("generate key from seed for match operation with multiple nodes", async () => {
-    const secretKeyFromSeed = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { match: true },
-      undefined,
-      seed,
-    );
-    expect(
-      await toHashBase64(secretKeyFromSeed.material as Uint8Array),
-    ).toStrictEqual("qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=");
-
-    const secretKey = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { match: true },
-    );
-    expect(await toHashBase64(secretKey.material as Uint8Array)).not.toEqual(
-      "qbcFGTOGTPo+vs3EChnVUWk5lnn6L6Cr/DIq8li4H+4=",
-    );
-  });
-
-  test("generate key from seed for sum operation with multiple nodes", async () => {
-    const secretKeyFromSeed = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { sum: true },
-      undefined,
-      seed,
-    );
-    expect(
-      await toHashBase64(secretKeyFromSeed.material as number[]),
-    ).toStrictEqual("L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=");
-
-    const secretKey = await blindfold.SecretKey.generate(
-      { nodes: [{}, {}, {}] },
-      { sum: true },
-    );
-    expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
-      "L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=",
-    );
-  });
-});
-
-test("generate key from seed for sum operation with multiple nodes and threshold", async () => {
-  const secretKeyFromSeed = await blindfold.SecretKey.generate(
-    { nodes: [{}, {}, {}] },
-    { sum: true },
-    2,
-    seed,
-  );
-  expect(
-    await toHashBase64(secretKeyFromSeed.material as number[]),
-  ).toStrictEqual("L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=");
-
-  const secretKey = await blindfold.SecretKey.generate(
-    { nodes: [{}, {}, {}] },
-    { sum: true },
-    2,
-  );
-  expect(await toHashBase64(secretKey.material as number[])).not.toEqual(
-    "L8RiHNq2EUgt/fDOoUw9QK2NISeUkAkhxHHIPoHPZ84=",
-  );
 });
 
 /**
