@@ -73,6 +73,19 @@ function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 /**
+ * Determine whether the supplied argument is a simple object.
+ */
+function _isSimpleObject(object: object | undefined): boolean {
+  return (
+    object !== undefined &&
+    object !== null &&
+    typeof object === "object" &&
+    !Array.isArray(object) &&
+    Object.prototype.toString.call(object) === "[object Object]"
+  );
+}
+
+/**
  * Helper function to compare two arrays of strings.
  */
 function _equalKeys(a: string[], b: string[]) {
@@ -293,12 +306,66 @@ function _decode(bytes: Uint8Array): bigint | string | Uint8Array {
 }
 
 /**
+ * Ensure the provided cluster configuration, operations specification, and
+ * threshold are valid and compatible with one another.
+ */
+function _validateKeyAttributes(
+  cluster: Cluster,
+  operations: Operations,
+  threshold: number | undefined = undefined,
+) {
+  if (threshold !== undefined) {
+    if (typeof threshold !== "number") {
+      throw new TypeError("threshold must be a number");
+    }
+
+    if (!Number.isInteger(threshold)) {
+      throw new Error("threshold must be an integer number");
+    }
+
+    if (cluster.nodes.length === 1) {
+      throw new Error(
+        "thresholds are only supported for multiple-node clusters",
+      );
+    }
+
+    if (threshold < 1 || threshold > cluster.nodes.length) {
+      throw new Error(
+        "threshold must be a positive integer not larger than the cluster size",
+      );
+    }
+
+    if (!operations.sum) {
+      throw new Error("thresholds are only supported for the sum operation");
+    }
+  }
+}
+
+/**
  * Cluster configuration information.
  */
 export class Cluster {
   nodes: object[];
 
   constructor(configuration: { nodes: object[] }) {
+    if (!_isSimpleObject(configuration)) {
+      throw new TypeError("cluster configuration must be a simple object");
+    }
+
+    if (!("nodes" in configuration)) {
+      throw new Error("cluster configuration must specify nodes");
+    }
+
+    if (!Array.isArray(configuration.nodes)) {
+      throw new Error(
+        "cluster configuration nodes specification must be an array",
+      );
+    }
+
+    if (configuration.nodes.length < 1) {
+      throw new Error("cluster configuration must contain at least one node");
+    }
+
     this.nodes = configuration.nodes;
   }
 }
@@ -310,6 +377,59 @@ export class Operations {
   store?: boolean;
   match?: boolean;
   sum?: boolean;
+
+  constructor(specification: {
+    store?: boolean;
+    match?: boolean;
+    sum?: boolean;
+  }) {
+    if (!_isSimpleObject(specification)) {
+      throw new TypeError("operations specification must be a simple object");
+    }
+
+    if (
+      !Object.keys(specification).every((o) =>
+        ["store", "match", "sum"].includes(o),
+      )
+    ) {
+      throw new Error(
+        "permitted operations are limited to store, match, and sum",
+      );
+    }
+
+    if (
+      !Object.keys(specification).every(
+        (o) =>
+          typeof specification[o as keyof typeof specification] === "boolean",
+      )
+    ) {
+      throw new TypeError("operations specification values must be boolean");
+    }
+
+    if (Object.values(specification).filter((o) => o).length !== 1) {
+      throw new Error(
+        "operations specification must enable exactly one operation",
+      );
+    }
+
+    // Ensure this object only contains the operation being specified as a key
+    // (and no entries mapping to the `undefined` value).
+    delete this.store;
+    delete this.match;
+    delete this.sum;
+
+    if ("store" in specification) {
+      this.store = specification.store;
+    }
+
+    if ("match" in specification) {
+      this.match = specification.match;
+    }
+
+    if ("sum" in specification) {
+      this.sum = specification.sum;
+    }
+  }
 }
 
 /**
@@ -321,23 +441,20 @@ export class SecretKey {
   threshold?: number;
   material: Uint8Array | paillierBigint.PrivateKey | number[];
 
-  private constructor(cluster: Cluster, operations: Operations) {
-    if (cluster.nodes === undefined || cluster.nodes.length < 1) {
-      throw new Error("cluster configuration must contain at least one node");
-    }
-
-    if (
-      Object.keys(operations).length !== 1 ||
-      (!operations.store && !operations.match && !operations.sum)
-    ) {
-      throw new Error(
-        "operations specification must enable exactly one operation",
-      );
-    }
-
+  private constructor(
+    cluster: Cluster,
+    operations: Operations,
+    threshold: number | undefined,
+    material: Uint8Array | paillierBigint.PrivateKey | number[],
+  ) {
     this.cluster = cluster;
     this.operations = operations;
-    this.material = [];
+
+    if (threshold !== undefined) {
+      this.threshold = threshold;
+    }
+
+    this.material = material;
   }
 
   /**
@@ -352,6 +469,26 @@ export class SecretKey {
   ): Promise<SecretKey> {
     await sodium.ready;
 
+    const cluster_ = new Cluster(cluster);
+    const operations_ = new Operations(operations);
+    const threshold_ = threshold;
+
+    _validateKeyAttributes(cluster_, operations_, threshold_);
+
+    // Assign placeholder value to accommodate the type. The operations
+    // specification is valid at this point, so one of the branches
+    // below will assign a value.
+    let material_: Uint8Array | paillierBigint.PrivateKey | number[] = [];
+
+    if (
+      seed !== undefined &&
+      !(seed instanceof Uint8Array) &&
+      !Buffer.isBuffer(seed) &&
+      typeof seed !== "string"
+    ) {
+      throw TypeError("seed must be string, Uint8Array, or Buffer");
+    }
+
     // Normalize type of seed argument.
     const seedBytes: Uint8Array | undefined =
       seed === undefined
@@ -360,23 +497,17 @@ export class SecretKey {
           ? new TextEncoder().encode(seed)
           : new Uint8Array(seed);
 
-    const secretKey = new SecretKey(cluster, operations);
-
-    if (secretKey.operations.store) {
+    if (operations_.store) {
       // Symmetric key for encrypting the plaintext or the shares of a plaintext.
-      secretKey.material = await _randomBytes(
+      material_ = await _randomBytes(
         sodium.crypto_secretbox_KEYBYTES,
         seedBytes,
       );
-    }
-
-    if (secretKey.operations.match) {
+    } else if (operations_.match) {
       // Salt for  deterministic hashing of the plaintext.
-      secretKey.material = await _randomBytes(64, seedBytes);
-    }
-
-    if (secretKey.operations.sum) {
-      if (secretKey.cluster.nodes.length === 1) {
+      material_ = await _randomBytes(64, seedBytes);
+    } else if (operations_.sum) {
+      if (cluster_.nodes.length === 1) {
         // Paillier secret key for encrypting a plaintext numeric value.
         if (seed !== undefined) {
           throw Error(
@@ -384,22 +515,23 @@ export class SecretKey {
               "is not supported for single-node clusters",
           );
         }
+
         const { privateKey } =
           await paillierBigint.generateRandomKeys(_PAILLIER_KEY_LENGTH);
 
         // Discard cached prime factor attributes for consistency.
-        secretKey.material = new paillierBigint.PrivateKey(
+        material_ = new paillierBigint.PrivateKey(
           privateKey.lambda,
           privateKey.mu,
           privateKey.publicKey,
         );
       } else {
         // Distinct multiplicative mask for each share.
-        secretKey.material = [];
-        for (let i = 0n; i < secretKey.cluster.nodes.length; i++) {
+        material_ = [];
+        for (let i = 0n; i < cluster_.nodes.length; i++) {
           const indexBytes = Buffer.alloc(8);
           indexBytes.writeBigInt64LE(i, 0);
-          (secretKey.material as number[]).push(
+          (material_ as number[]).push(
             Number(
               await _randomInteger(
                 1n,
@@ -412,24 +544,7 @@ export class SecretKey {
       }
     }
 
-    if (threshold !== undefined) {
-      if (!Number.isInteger(threshold)) {
-        throw new Error("threshold must be an integer value");
-      }
-
-      if (threshold < 1 || threshold > cluster.nodes.length) {
-        throw new Error(
-          "threshold must be a positive integer not larger than the cluster size",
-        );
-      }
-
-      if (!operations.sum) {
-        throw new Error("thresholds are only supported for the sum operation");
-      }
-      secretKey.threshold = threshold;
-    }
-
-    return secretKey;
+    return new SecretKey(cluster_, operations_, threshold_, material_);
   }
 
   /**
@@ -458,11 +573,15 @@ export class SecretKey {
       material: [],
     };
 
+    if (this.threshold !== undefined) {
+      object.threshold = this.threshold;
+    }
+
     if (
       Array.isArray(this.material) &&
       this.material.every((o) => typeof o === "number")
     ) {
-      object.material = this.material;
+      object.material = this.material.map((k) => k);
     } else if (this.material instanceof Uint8Array) {
       object.material = _pack(this.material);
     } else {
@@ -480,10 +599,6 @@ export class SecretKey {
       };
     }
 
-    if (this.threshold !== undefined) {
-      object.threshold = this.threshold;
-    }
-
     return object;
   }
 
@@ -499,74 +614,148 @@ export class SecretKey {
       | { n: string; g: string; l: string; m: string }
       | number[];
   }): SecretKey {
-    const errorMessage = "invalid object representation of a secret key";
+    const cluster_ = new Cluster(object.cluster);
+    const operations_ = new Operations(object.operations);
+    const threshold_ = "threshold" in object ? object.threshold : undefined;
 
-    if (
-      !("material" in object && "cluster" in object && "operations" in object)
-    ) {
-      throw new Error(errorMessage);
-    }
+    _validateKeyAttributes(cluster_, operations_, threshold_);
 
-    const secretKey = new SecretKey(
-      object.cluster as Cluster,
-      object.operations as Operations,
-    );
+    // Assign placeholder value to accommodate the type. The operations
+    // specification is valid at this point, so one of the branches
+    // below will assign a value.
+    let material_: Uint8Array | paillierBigint.PrivateKey | number[] = [];
 
-    const material = object.material;
+    if (operations_.store) {
+      // A symmetric key (to encrypt individual values or secret shares)
+      // is expected.
+      if (typeof object.material !== "string") {
+        throw TypeError(
+          "operations specification requires key material to be a string",
+        );
+      }
 
-    if (
-      Array.isArray(material) &&
-      material.every((o) => typeof o === "number")
-    ) {
-      secretKey.material = material;
-    } else if (typeof material === "string") {
-      secretKey.material = _unpack(material);
-    } else if (
-      material !== null &&
-      typeof material === "object" &&
-      !Array.isArray(material) &&
-      Object.prototype.toString.call(material) === "[object Object]"
-    ) {
-      // Secret key for Paillier encryption.
+      const buffer = _unpack(object.material as string);
+      if (buffer.length !== 32) {
+        throw Error("key material must have a length of 32 bytes");
+      }
+
+      material_ = buffer;
+    } else if (operations_.match) {
+      // A salt for hashing is expected.
+      if (typeof object.material !== "string") {
+        throw TypeError(
+          "operations specification requires key material to be a string",
+        );
+      }
+
+      const buffer = _unpack(object.material as string);
+      if (buffer.length !== 64) {
+        throw Error("key material must have a length of 64 bytes");
+      }
+
+      material_ = buffer;
+    } else if (operations_.sum && cluster_.nodes.length === 1) {
+      // Paillier secret key (to support summation-compatible encryption for
+      // single-node clusters) is expected.
+      if (!_isSimpleObject(object.material as object)) {
+        throw new TypeError(
+          "operations specification requires key material to be a simple object",
+        );
+      }
+
+      const parameters = object.material as {
+        n: string;
+        g: string;
+        l: string;
+        m: string;
+      };
+
       if (
         !(
-          "l" in material &&
-          "m" in material &&
-          "n" in material &&
-          "g" in material
+          "l" in parameters &&
+          "m" in parameters &&
+          "n" in parameters &&
+          "g" in parameters
         )
       ) {
-        throw new Error(errorMessage);
+        throw new Error("key material must contain all required parameters");
       }
 
       if (
         !(
-          typeof material.l === "string" &&
-          typeof material.m === "string" &&
-          typeof material.n === "string" &&
-          typeof material.g === "string"
+          typeof parameters.l === "string" &&
+          typeof parameters.m === "string" &&
+          typeof parameters.n === "string" &&
+          typeof parameters.g === "string"
         )
       ) {
-        throw new TypeError(errorMessage);
+        throw new TypeError("key material parameter values must be strings");
       }
 
-      secretKey.material = new paillierBigint.PrivateKey(
-        BigInt(material.l as string),
-        BigInt(material.m as string),
-        new paillierBigint.PublicKey(
-          BigInt(material.n as string),
-          BigInt(material.g as string),
-        ),
+      let l: bigint;
+      let m: bigint;
+      let n: bigint;
+      let g: bigint;
+
+      try {
+        l = BigInt(parameters.l as string);
+        m = BigInt(parameters.m as string);
+        n = BigInt(parameters.n as string);
+        g = BigInt(parameters.g as string);
+      } catch (_) {
+        throw Error(
+          "key material parameter strings must be convertible to integer values",
+        );
+      }
+
+      // Checking that the material contents (provided as integers represent
+      // values that are within the correct range is the responsibility of the
+      // constructor from the imported library.
+      material_ = new paillierBigint.PrivateKey(
+        l,
+        m,
+        new paillierBigint.PublicKey(n, g),
       );
-    } else {
-      throw new TypeError(errorMessage);
+    } else if (operations_.sum && cluster_.nodes.length > 1) {
+      // Node-specific masks for secret shares (to support summation-compatible
+      // encryption for multiple-node clusters) are expected.
+      if (!Array.isArray(object.material)) {
+        throw new TypeError(
+          "operations specification requires key material to be an array",
+        );
+      }
+
+      if (object.material.length !== cluster_.nodes.length) {
+        throw new Error(
+          "cluster configuration requires key material to have length " +
+            cluster_.nodes.length,
+        );
+      }
+
+      // Ensure the masks are integers and that the integers are in the right
+      // range to represent multiplicative masks.
+      if (!object.material.every((o) => typeof o === "number")) {
+        throw new TypeError("key material must contain numbers");
+      }
+
+      if (!object.material.every((k) => Number.isInteger(k))) {
+        throw new Error("key material must contain integer numbers");
+      }
+
+      if (
+        !object.material.every(
+          (k) => 1 <= k && k < _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        )
+      ) {
+        throw new Error(
+          "key material must contain integer numbers within the correct range",
+        );
+      }
+
+      material_ = object.material;
     }
 
-    if ("threshold" in object) {
-      secretKey.threshold = object.threshold as number;
-    }
-
-    return secretKey;
+    return new SecretKey(cluster_, operations_, threshold_, material_);
   }
 }
 
@@ -583,29 +772,12 @@ export class ClusterKey {
     operations: Operations,
     threshold: number | undefined = undefined,
   ) {
-    if (cluster.nodes === undefined || cluster.nodes.length < 1) {
-      throw new Error("cluster configuration must contain at least one node");
-    }
-
-    if (
-      Object.keys(operations).length !== 1 ||
-      (!operations.store && !operations.match && !operations.sum)
-    ) {
-      throw new Error(
-        "operations specification must enable exactly one operation",
-      );
-    }
-
     this.cluster = cluster;
     this.operations = operations;
 
-    if (cluster.nodes.length < 2) {
-      throw new Error("cluster configuration must contain at least two nodes");
+    if (threshold !== undefined) {
+      this.threshold = threshold;
     }
-
-    this.cluster = cluster;
-    this.operations = operations;
-    this.threshold = threshold;
   }
 
   /**
@@ -617,23 +789,25 @@ export class ClusterKey {
     operations: Operations,
     threshold: number | undefined = undefined,
   ): Promise<ClusterKey> {
-    if (threshold !== undefined) {
-      if (!Number.isInteger(threshold)) {
-        throw new Error("threshold must be an integer value");
-      }
+    const cluster_ = new Cluster(cluster);
 
-      if (threshold < 1 || threshold > cluster.nodes.length) {
-        throw new Error(
-          "threshold must be a positive integer not larger than the cluster size",
-        );
-      }
-
-      if (!operations.sum) {
-        throw new Error("thresholds are only supported for the sum operation");
-      }
+    if (cluster_.nodes.length < 2) {
+      throw new Error("cluster configuration must contain at least two nodes");
     }
 
-    return new ClusterKey(cluster, operations, threshold);
+    const operations_ = new Operations(operations);
+
+    if (operations_.match) {
+      throw new Error(
+        "cluster keys cannot support matching-compatible encryption",
+      );
+    }
+
+    const threshold_ = threshold;
+
+    _validateKeyAttributes(cluster_, operations_, threshold_);
+
+    return new ClusterKey(cluster_, operations_, threshold_);
   }
 
   /**
@@ -667,15 +841,29 @@ export class ClusterKey {
     operations: Operations;
     threshold?: number;
   }): ClusterKey {
-    if (!("cluster" in object && "operations" in object)) {
-      throw new Error("invalid object representation of a cluster key");
+    const cluster_ = new Cluster(object.cluster);
+
+    if (cluster_.nodes.length < 2) {
+      throw new Error("cluster configuration must contain at least two nodes");
     }
 
-    return new ClusterKey(
-      object.cluster as Cluster,
-      object.operations as Operations,
-      "threshold" in object ? (object.threshold as number) : undefined,
-    );
+    const operations_ = new Operations(object.operations);
+
+    if (operations_.match) {
+      throw new Error(
+        "cluster keys cannot support matching-compatible encryption",
+      );
+    }
+
+    const threshold_ = object.threshold;
+
+    _validateKeyAttributes(cluster_, operations_, threshold_);
+
+    if ("material" in object) {
+      throw new Error("cluster keys cannot contain key material");
+    }
+
+    return new ClusterKey(cluster_, operations_, threshold_);
   }
 }
 
@@ -706,18 +894,34 @@ export class PublicKey {
    * secret key.
    */
   public static async generate(secretKey: SecretKey): Promise<PublicKey> {
-    const cluster = secretKey.cluster;
-    const operations = secretKey.operations;
+    // No internal validation of the supplied secret key is performed beyond
+    // what is necessary for the generation of this public key. It is also
+    // assumed that the encapsulated key from the Paillier cryptosystem library
+    // has valid internal structure.
 
-    if (
-      typeof secretKey.material === "object" &&
-      "publicKey" in secretKey.material &&
-      secretKey.material.publicKey instanceof paillierBigint.PublicKey
-    ) {
-      return new PublicKey(cluster, operations, secretKey.material.publicKey);
+    if (!(secretKey instanceof SecretKey)) {
+      throw new TypeError("secret key expected");
     }
 
-    throw new Error("cannot create public key for supplied secret key");
+    if (typeof secretKey.material !== "object") {
+      throw new TypeError("secret key material must be an object");
+    }
+
+    if (!("publicKey" in secretKey.material)) {
+      throw new Error("secret key must contain public key");
+    }
+
+    if (!(secretKey.material.publicKey instanceof paillierBigint.PublicKey)) {
+      throw new TypeError(
+        "secret key must contain public key of the correct type",
+      );
+    }
+
+    return new PublicKey(
+      secretKey.cluster,
+      secretKey.operations,
+      secretKey.material.publicKey,
+    );
   }
 
   /**
@@ -728,14 +932,14 @@ export class PublicKey {
     operations: Operations;
     material: { n: string; g: string };
   } {
-    // Public key for Paillier encryption.
-    const publicKey = this.material as paillierBigint.PublicKey;
     return {
       cluster: this.cluster,
       operations: this.operations,
+
+      // Public key for Paillier encryption.
       material: {
-        n: publicKey.n.toString(),
-        g: publicKey.g.toString(),
+        n: this.material.n.toString(),
+        g: this.material.g.toString(),
       },
     };
   }
@@ -748,39 +952,62 @@ export class PublicKey {
     operations: Operations;
     material: { n: string; g: string };
   }): PublicKey {
-    const errorMessage = "invalid object representation of a public key";
+    const cluster_ = new Cluster(object.cluster);
+
+    if (cluster_.nodes.length !== 1) {
+      throw new Error(
+        "public keys are only supported for single-node clusters",
+      );
+    }
+
+    const operations_ = new Operations(object.operations);
+
+    if (!operations_.sum) {
+      throw new Error("public keys can only support the sum operation");
+    }
+
+    if ("threshold" in object) {
+      throw new Error("public keys cannot specify a threshold");
+    }
+
+    _validateKeyAttributes(cluster_, operations_);
+
+    // Validate and normalize/wrap the key material.
+    if (!_isSimpleObject(object.material)) {
+      throw new TypeError("key material must be a simple object");
+    }
+
+    const parameters = object.material;
+
+    if (!("n" in parameters && "g" in parameters)) {
+      throw new Error("key material must contain all required parameters");
+    }
 
     if (
-      !("material" in object && "cluster" in object && "operations" in object)
+      !(typeof parameters.n === "string" && typeof parameters.g === "string")
     ) {
-      throw new Error(errorMessage);
+      throw new TypeError("key material parameter values must be strings");
     }
 
-    const cluster = object.cluster as Cluster;
-    const operations = object.operations as Operations;
+    let n: bigint;
+    let g: bigint;
 
-    let material = object.material as object;
-
-    if (!("n" in material && "g" in material)) {
-      throw new Error(errorMessage);
+    try {
+      n = BigInt(object.material.n);
+      g = BigInt(object.material.g);
+    } catch (_) {
+      throw Error(
+        "key material parameter strings must be convertible to integer values",
+      );
     }
-
-    if (!(typeof material.n === "string" && typeof material.g === "string")) {
-      throw new TypeError(errorMessage);
-    }
-
-    // Checking that the material values are of the correct type and
-    // within the correct range is the responsibility of the constructor
-    // from the imported library.
-    material = new paillierBigint.PublicKey(
-      BigInt(material.n as string),
-      BigInt(material.g as string),
-    );
 
     return new PublicKey(
-      cluster,
-      operations,
-      material as paillierBigint.PublicKey,
+      cluster_,
+      operations_,
+
+      // Checking that the material values are within the correct range is the
+      // responsibility of the constructor from the imported library.
+      new paillierBigint.PublicKey(n, g),
     );
   }
 }

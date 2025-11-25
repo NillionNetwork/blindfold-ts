@@ -353,31 +353,710 @@ describe("methods of cryptographic key classes", () => {
 /**
  * Tests of errors thrown by methods of cryptographic key classes.
  */
-describe("errors involving methods of cryptographic key classes", () => {
-  test("errors in secret key generation", async () => {
-    try {
-      const _secretKey = await blindfold.SecretKey.generate(
-        { nodes: [{}] },
-        { match: true, sum: true },
-      );
-    } catch (e) {
-      expect(e).toStrictEqual(
-        Error("operations specification must enable exactly one operation"),
-      );
+describe("errors thrown by methods of cryptographic key classes", () => {
+  test("errors that can occur during key generation", async () => {
+    // Cluster configuration errors.
+    for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
+      for (const ops of [{ store: true }, { match: true }, { sum: true }]) {
+        try {
+          await Key.generate("abc" as unknown as { nodes: object[] }, ops);
+        } catch (e) {
+          expect(e).toStrictEqual(
+            TypeError("cluster configuration must be a simple object"),
+          );
+        }
+
+        try {
+          await Key.generate({} as unknown as { nodes: object[] }, ops);
+        } catch (e) {
+          expect(e).toStrictEqual(
+            Error("cluster configuration must specify nodes"),
+          );
+        }
+
+        try {
+          await Key.generate(
+            { nodes: 123 } as unknown as { nodes: object[] },
+            ops,
+          );
+        } catch (e) {
+          expect(e).toStrictEqual(
+            Error("cluster configuration nodes specification must be an array"),
+          );
+        }
+
+        try {
+          await Key.generate(cluster(0), ops);
+        } catch (e) {
+          expect(e).toStrictEqual(
+            Error("cluster configuration must contain at least one node"),
+          );
+        }
+
+        if (Key === blindfold.ClusterKey && !ops.match) {
+          try {
+            await Key.generate(cluster(1), ops);
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error("cluster configuration must contain at least two nodes"),
+            );
+          }
+        }
+      }
+    }
+
+    // Operations specification errors.
+    for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
+      for (const n of [1, 2, 3, 4]) {
+        if (!(Key === blindfold.ClusterKey && n === 1)) {
+          try {
+            await Key.generate(
+              cluster(n),
+              "123" as unknown as { sum: boolean },
+            );
+          } catch (e) {
+            expect(e).toStrictEqual(
+              TypeError("operations specification must be a simple object"),
+            );
+          }
+
+          try {
+            await Key.generate(cluster(n), { foo: true } as unknown as {
+              sum: boolean;
+            });
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error(
+                "permitted operations are limited to store, match, and sum",
+              ),
+            );
+          }
+
+          try {
+            await Key.generate(cluster(n), { store: 123 } as unknown as {
+              sum: boolean;
+            });
+          } catch (e) {
+            expect(e).toStrictEqual(
+              TypeError("operations specification values must be boolean"),
+            );
+          }
+
+          try {
+            await Key.generate(cluster(n), {});
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error(
+                "operations specification must enable exactly one operation",
+              ),
+            );
+          }
+        }
+
+        if (Key === blindfold.ClusterKey && n >= 2) {
+          try {
+            await blindfold.ClusterKey.generate(cluster(n), { match: true });
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error(
+                "cluster keys cannot support matching-compatible encryption",
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    // Threshold errors.
+    for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
+      for (const n of [1, 2, 3, 4]) {
+        if (!(Key === blindfold.ClusterKey && n === 1)) {
+          try {
+            await Key.generate(
+              cluster(n),
+              { sum: true },
+              "abc" as unknown as number,
+            );
+          } catch (e) {
+            expect(e).toStrictEqual(TypeError("threshold must be a number"));
+          }
+
+          try {
+            await Key.generate(cluster(n), { sum: true }, 0.123);
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error("threshold must be an integer number"),
+            );
+          }
+
+          if (n === 1) {
+            try {
+              await Key.generate(cluster(n), { sum: true }, 1);
+            } catch (e) {
+              expect(e).toStrictEqual(
+                Error(
+                  "thresholds are only supported for multiple-node clusters",
+                ),
+              );
+            }
+          }
+
+          if (n >= 2) {
+            for (const t of [2 - n, n + 1]) {
+              try {
+                await Key.generate(cluster(n), { sum: true }, t);
+              } catch (e) {
+                expect(e).toStrictEqual(
+                  Error(
+                    "threshold must be a positive integer not larger than the cluster size",
+                  ),
+                );
+              }
+            }
+
+            try {
+              await Key.generate(cluster(n), { store: true }, n);
+            } catch (e) {
+              expect(e).toStrictEqual(
+                Error("thresholds are only supported for the sum operation"),
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Seed errors.
+    for (const n of [1, 2, 3, 4]) {
+      for (const ops of [{ store: true }, { match: true }, { sum: true }]) {
+        try {
+          await blindfold.SecretKey.generate(
+            cluster(n),
+            ops,
+            undefined,
+            123 as unknown as string,
+          );
+        } catch (e) {
+          expect(e).toStrictEqual(
+            TypeError("seed must be string, Uint8Array, or Buffer"),
+          );
+        }
+
+        if (n === 1 && ops.sum) {
+          try {
+            await blindfold.SecretKey.generate(
+              cluster(n),
+              ops,
+              undefined,
+              "ABC",
+            );
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error(
+                "seed-based derivation of summation-compatible secret keys " +
+                  "is not supported for single-node clusters",
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    // Public key errors.
+    for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
+      for (const n of [1, 2, 3, 4]) {
+        for (const ops of [{ store: true }, { match: true }, { sum: true }]) {
+          if (!(Key === blindfold.ClusterKey && (n === 1 || ops.match))) {
+            if (Key === blindfold.ClusterKey) {
+              try {
+                const key = await Key.generate(cluster(n), ops);
+                await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+              } catch (e) {
+                expect(e).toStrictEqual(TypeError("secret key expected"));
+              }
+            }
+
+            // Valid but incompatible secret keys.
+            if (Key === blindfold.SecretKey && !(n === 1 && ops.sum)) {
+              try {
+                const key = await Key.generate(cluster(n), ops);
+                await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+              } catch (e) {
+                expect(e).toStrictEqual(
+                  Error("secret key must contain public key"),
+                );
+              }
+            }
+
+            // Potentially compatible but malformed secret keys.
+            if (Key === blindfold.SecretKey && n === 1 && ops.sum) {
+              try {
+                const key = await Key.generate(cluster(n), ops);
+                (key as unknown as { material: number }).material = 123;
+                await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+              } catch (e) {
+                expect(e).toStrictEqual(
+                  TypeError("secret key material must be an object"),
+                );
+              }
+
+              try {
+                const key = await Key.generate(cluster(n), ops);
+                (key as unknown as { material: object }).material = {};
+                await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+              } catch (e) {
+                expect(e).toStrictEqual(
+                  Error("secret key must contain public key"),
+                );
+              }
+
+              try {
+                const key = await Key.generate(cluster(n), ops);
+                (
+                  key as unknown as { material: { publicKey: number } }
+                ).material.publicKey = 123;
+                await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+              } catch (e) {
+                expect(e).toStrictEqual(
+                  TypeError(
+                    "secret key must contain public key of the correct type",
+                  ),
+                );
+              }
+            }
+          }
+        }
+      }
     }
   });
 
-  test("errors in public key generation", async () => {
-    const cluster = { nodes: [{}, {}, {}] };
-    try {
-      const secretKey = await blindfold.SecretKey.generate(cluster, {
+  test("errors that can occur during key dumping and loading", async () => {
+    // Errors that can occur due to checks performed within key generation
+    // are not considered within these tests. The only exception is that a
+    // single test is included to ensure that the corresponding constructors
+    // or validation methods are invoked. These are identified via comments.
+
+    // Secret keys.
+    type secretKeyObjectType = {
+      cluster: blindfold.Cluster;
+      operations: blindfold.Operations;
+      material:
+        | string
+        | { n: string; g: string; l: string; m: string }
+        | number[];
+    };
+
+    // Secret keys: invalid cluster configuration, invalid operations
+    // specification, or material incompatible with these.
+    for (const n of [1, 2, 3, 4]) {
+      for (const ops of [{ store: true }, { match: true }, { sum: true }]) {
+        // Check that cluster configuration validation is invoked.
+        try {
+          const secKey = await blindfold.SecretKey.generate(cluster(n), ops);
+          const secKeyObject = secKey.dump();
+          delete secKeyObject["cluster" as keyof typeof secKeyObject];
+          blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+        } catch (e) {
+          expect(e).toStrictEqual(
+            TypeError("cluster configuration must be a simple object"),
+          );
+        }
+
+        // Check that operation specification validation is invoked.
+        try {
+          const secKey = await blindfold.SecretKey.generate(cluster(n), ops);
+          const secKeyObject = secKey.dump() as { operations?: object };
+          delete secKeyObject["operations" as keyof typeof secKeyObject];
+          blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+        } catch (e) {
+          expect(e).toStrictEqual(
+            TypeError("operations specification must be a simple object"),
+          );
+        }
+
+        // Check that key attribute compatibility validation is invoked.
+        try {
+          const secKey = await blindfold.SecretKey.generate(cluster(n), ops);
+          const secKeyObject = secKey.dump();
+          (secKeyObject as unknown as { threshold: number }).threshold =
+            "abc" as unknown as number;
+          blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+        } catch (e) {
+          expect(e).toStrictEqual(TypeError("threshold must be a number"));
+        }
+
+        // Check all material attribute type errors for the possible operations.
+        try {
+          const secKey = await blindfold.SecretKey.generate(cluster(n), ops);
+          const secKeyObject = secKey.dump();
+          delete secKeyObject["material" as keyof typeof secKeyObject];
+          blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+        } catch (e) {
+          expect(e).toStrictEqual(
+            TypeError(
+              "operations specification requires key material to be " +
+                (ops.sum
+                  ? n === 1
+                    ? "a simple object"
+                    : "an array"
+                  : "a string"),
+            ),
+          );
+        }
+      }
+    }
+
+    // Secret keys: invalid material for matching and storage.
+    for (const n of [1, 2, 3, 4]) {
+      const secKeyForStore = await blindfold.SecretKey.generate(cluster(n), {
+        store: true,
+      });
+      const secKeyForMatch = await blindfold.SecretKey.generate(cluster(n), {
+        match: true,
+      });
+
+      try {
+        const secKeyForStoreObject = secKeyForStore.dump();
+        const secKeyForMatchObject = secKeyForMatch.dump();
+        secKeyForStoreObject.material = secKeyForMatchObject.material;
+        blindfold.SecretKey.load(secKeyForStoreObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key material must have a length of 32 bytes"),
+        );
+      }
+
+      try {
+        const secKeyForStoreObject = secKeyForStore.dump();
+        const secKeyForMatchObject = secKeyForMatch.dump();
+        secKeyForMatchObject.material = secKeyForStoreObject.material;
+        blindfold.SecretKey.load(secKeyForMatchObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key material must have a length of 64 bytes"),
+        );
+      }
+    }
+
+    // Secret keys: invalid material for summation on single-node clusters.
+    for (const param of ["l", "m", "n", "g"]) {
+      type materialType = { l: string; m: string; n: string; g: string };
+      const secKey = secretKeyForSumWithOneNode;
+
+      try {
+        const secKeyObject = secKey.dump();
+        if (secKeyObject.material !== undefined) {
+          const material = secKeyObject.material as unknown as materialType;
+          delete material[param as keyof typeof material];
+        }
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key material must contain all required parameters"),
+        );
+      }
+
+      try {
+        const secKeyObject = secKey.dump();
+        const material = secKeyObject.material as unknown as materialType;
+        material[param as keyof typeof material] = 123 as unknown as string;
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          TypeError("key material parameter values must be strings"),
+        );
+      }
+
+      try {
+        const secKeyObject = secKey.dump();
+        const material = secKeyObject.material as unknown as materialType;
+        material[param as keyof typeof material] = "abc";
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            "key material parameter strings must be convertible to integer values",
+          ),
+        );
+      }
+    }
+
+    // Secret keys: invalid material for summation on multiple-node clusters.
+    for (const n of [2, 3, 4]) {
+      const secKey = await blindfold.SecretKey.generate(cluster(n), {
         sum: true,
       });
-      const _publicKey = await blindfold.PublicKey.generate(secretKey);
+
+      try {
+        const secKeyObject = secKey.dump();
+        secKeyObject.material = "abc" as unknown as number[];
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          TypeError(
+            "operations specification requires key material to be an array",
+          ),
+        );
+      }
+
+      try {
+        const secKeyObject = secKey.dump();
+        const material = secKeyObject.material as number[];
+        material.pop();
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            `cluster configuration requires key material to have length ${n}`,
+          ),
+        );
+      }
+
+      try {
+        const secKeyObject = secKey.dump();
+        const material = secKeyObject.material as number[];
+        material[0] = "abc" as unknown as number;
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(TypeError("key material must contain numbers"));
+      }
+
+      try {
+        const secKeyObject = secKey.dump();
+        const material = secKeyObject.material as number[];
+        material[0] = 1.23;
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key material must contain integer numbers"),
+        );
+      }
+
+      try {
+        const secKeyObject = secKey.dump();
+        const material = secKeyObject.material as number[];
+        material[0] = 0; // Masks for secret shares must be nonzero.
+        blindfold.SecretKey.load(secKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            "key material must contain integer numbers within the correct range",
+          ),
+        );
+      }
+    }
+
+    // Cluster keys.
+    type clusterKeyObjectType = {
+      cluster: blindfold.Cluster;
+      operations: blindfold.Operations;
+    };
+
+    for (const n of [1, 2, 3, 4]) {
+      for (const ops of [{ store: true }, { match: true }, { sum: true }]) {
+        if (n !== 1 && !ops.match) {
+          // Check that cluster configuration validation is invoked.
+          try {
+            const cluKey = await blindfold.ClusterKey.generate(cluster(n), ops);
+            let cluKeyObject = cluKey.dump();
+            cluKeyObject = {} as unknown as clusterKeyObjectType;
+            blindfold.ClusterKey.load(
+              cluKeyObject as {
+                cluster: blindfold.Cluster;
+                operations: blindfold.Operations;
+              },
+            );
+          } catch (e) {
+            expect(e).toStrictEqual(
+              TypeError("cluster configuration must be a simple object"),
+            );
+          }
+        }
+
+        if (n === 1 && !ops.match) {
+          try {
+            const cluKey = await blindfold.ClusterKey.generate(cluster(2), ops);
+            const cluKeyObject = cluKey.dump();
+            cluKeyObject.cluster = cluster(n);
+            blindfold.ClusterKey.load(cluKeyObject);
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error("cluster configuration must contain at least two nodes"),
+            );
+          }
+        }
+
+        if (n !== 1 && !ops.match) {
+          // Check that operations specification validation is invoked.
+          try {
+            const cluKey = await blindfold.ClusterKey.generate(cluster(n), ops);
+            const cluKeyObject = cluKey.dump() as { operations?: object };
+            delete cluKeyObject["operations" as keyof typeof cluKeyObject];
+            blindfold.ClusterKey.load(cluKeyObject as clusterKeyObjectType);
+          } catch (e) {
+            expect(e).toStrictEqual(
+              TypeError("operations specification must be a simple object"),
+            );
+          }
+        }
+
+        if (n !== 1 && ops.match) {
+          try {
+            const cluKey = await blindfold.ClusterKey.generate(cluster(n), {
+              store: true,
+            });
+            const cluKeyObject = cluKey.dump();
+            cluKeyObject.operations = ops;
+            blindfold.ClusterKey.load(cluKeyObject);
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error(
+                "cluster keys cannot support matching-compatible encryption",
+              ),
+            );
+          }
+        }
+
+        if (n !== 1 && !ops.match) {
+          // Check that key attribute compatibility validation is invoked.
+          try {
+            const cluKey = await blindfold.ClusterKey.generate(cluster(n), ops);
+            const cluKeyObject = cluKey.dump() as unknown as {
+              threshold: number;
+            };
+            cluKeyObject.threshold = "abc" as unknown as number;
+            blindfold.ClusterKey.load(
+              cluKeyObject as unknown as clusterKeyObjectType,
+            );
+          } catch (e) {
+            expect(e).toStrictEqual(TypeError("threshold must be a number"));
+          }
+
+          try {
+            const cluKey = await blindfold.ClusterKey.generate(cluster(n), ops);
+            const cluKeyObject = cluKey.dump() as unknown as {
+              material: object;
+            };
+            cluKeyObject.material = {};
+            blindfold.ClusterKey.load(
+              cluKeyObject as unknown as clusterKeyObjectType,
+            );
+          } catch (e) {
+            expect(e).toStrictEqual(
+              Error("cluster keys cannot contain key material"),
+            );
+          }
+        }
+      }
+    }
+
+    // Public keys.
+    type publicKeyObjectType = {
+      cluster: blindfold.Cluster;
+      operations: blindfold.Operations;
+      material: { n: string; g: string };
+    };
+
+    // Check that cluster configuration validation is invoked.
+    const secKey = secretKeyForSumWithOneNode;
+    const pubKey = await blindfold.PublicKey.generate(secKey);
+
+    try {
+      const pubKeyObject = pubKey.dump();
+      delete pubKeyObject["cluster" as keyof typeof pubKeyObject];
+      blindfold.PublicKey.load(pubKeyObject);
     } catch (e) {
       expect(e).toStrictEqual(
-        Error("cannot create public key for supplied secret key"),
+        TypeError("cluster configuration must be a simple object"),
       );
+    }
+
+    // Check that operations specification validation is invoked.
+    try {
+      const pubKeyObject = pubKey.dump();
+      delete pubKeyObject["operations" as keyof typeof pubKeyObject];
+      blindfold.PublicKey.load(pubKeyObject);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        TypeError("operations specification must be a simple object"),
+      );
+    }
+
+    try {
+      const pubKeyObject = pubKey.dump();
+      pubKeyObject.cluster = cluster(2);
+      blindfold.PublicKey.load(pubKeyObject);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        Error("public keys are only supported for single-node clusters"),
+      );
+    }
+
+    for (const ops of [{ store: true }, { match: true }]) {
+      try {
+        const pubKeyObject = pubKey.dump();
+        pubKeyObject.operations = ops;
+        blindfold.PublicKey.load(pubKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("public keys can only support the sum operation"),
+        );
+      }
+    }
+
+    try {
+      const pubKeyObject = pubKey.dump() as unknown as { threshold: number };
+      pubKeyObject.threshold = 2;
+      blindfold.PublicKey.load(pubKeyObject as unknown as publicKeyObjectType);
+    } catch (e) {
+      expect(e).toStrictEqual(Error("public keys cannot specify a threshold"));
+    }
+
+    try {
+      const pubKeyObject = pubKey.dump();
+      delete pubKeyObject["material" as keyof typeof pubKeyObject];
+      blindfold.PublicKey.load(pubKeyObject);
+    } catch (e) {
+      expect(e).toStrictEqual(
+        TypeError("key material must be a simple object"),
+      );
+    }
+
+    for (const param of ["n", "g"]) {
+      try {
+        const pubKeyObject = pubKey.dump();
+        const material = pubKeyObject.material;
+        delete material[param as keyof typeof material];
+        blindfold.PublicKey.load(pubKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error("key material must contain all required parameters"),
+        );
+      }
+
+      try {
+        const pubKeyObject = pubKey.dump();
+        const material = pubKeyObject.material;
+        material[param as keyof typeof material] = 123 as unknown as string;
+        blindfold.PublicKey.load(pubKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          TypeError("key material parameter values must be strings"),
+        );
+      }
+
+      try {
+        const pubKeyObject = pubKey.dump();
+        const material = pubKeyObject.material;
+        material[param as keyof typeof material] = "abc";
+        blindfold.PublicKey.load(pubKeyObject);
+      } catch (e) {
+        expect(e).toStrictEqual(
+          Error(
+            "key material parameter strings must be convertible to integer values",
+          ),
+        );
+      }
     }
   });
 });
@@ -616,7 +1295,7 @@ describe("errors involving encryption and decryption functions", () => {
       const secKey =
         n === 1
           ? secretKeyForSumWithOneNode
-          : await blindfold.SecretKey.generate(cluster(n), { store: true });
+          : await blindfold.SecretKey.generate(cluster(n), { sum: true });
       const encKey =
         n === 1 ? await blindfold.PublicKey.generate(secKey) : secKey;
 
