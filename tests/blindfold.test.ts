@@ -150,6 +150,13 @@ function cluster(size: number): blindfold.Cluster {
 }
 
 /**
+ * Function to detect when a `try` block did not throw an expected error.
+ */
+function expectThrow() {
+  throw new Error("expected test to throw error");
+}
+
+/**
  * Test that the exported classes and functions match the expected API.
  */
 describe("namespace", () => {
@@ -187,6 +194,7 @@ describe("errors that can occur within utility functions", () => {
         match: true,
       });
       await blindfold.encrypt(secretKey, "abc");
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(Error("Web Crypto API is not available"));
       globalThis.crypto = _temporary;
@@ -360,6 +368,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
       for (const ops of [{ store: true }, { match: true }, { sum: true }]) {
         try {
           await Key.generate("abc" as unknown as { nodes: object[] }, ops);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             TypeError("cluster configuration must be a simple object"),
@@ -368,6 +377,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
 
         try {
           await Key.generate({} as unknown as { nodes: object[] }, ops);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             Error("cluster configuration must specify nodes"),
@@ -379,6 +389,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             { nodes: 123 } as unknown as { nodes: object[] },
             ops,
           );
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             Error("cluster configuration nodes specification must be an array"),
@@ -387,6 +398,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
 
         try {
           await Key.generate(cluster(0), ops);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             Error("cluster configuration must contain at least one node"),
@@ -396,6 +408,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         if (Key === blindfold.ClusterKey && !ops.match) {
           try {
             await Key.generate(cluster(1), ops);
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error("cluster configuration must contain at least two nodes"),
@@ -414,6 +427,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
               cluster(n),
               "123" as unknown as { sum: boolean },
             );
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               TypeError("operations specification must be a simple object"),
@@ -424,6 +438,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             await Key.generate(cluster(n), { foo: true } as unknown as {
               sum: boolean;
             });
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error(
@@ -436,6 +451,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             await Key.generate(cluster(n), { store: 123 } as unknown as {
               sum: boolean;
             });
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               TypeError("operations specification values must be boolean"),
@@ -444,6 +460,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
 
           try {
             await Key.generate(cluster(n), {});
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error(
@@ -456,6 +473,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         if (Key === blindfold.ClusterKey && n >= 2) {
           try {
             await blindfold.ClusterKey.generate(cluster(n), { match: true });
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error(
@@ -477,12 +495,14 @@ describe("errors thrown by methods of cryptographic key classes", () => {
               { sum: true },
               "abc" as unknown as number,
             );
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(TypeError("threshold must be a number"));
           }
 
           try {
             await Key.generate(cluster(n), { sum: true }, 0.123);
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error("threshold must be an integer number"),
@@ -492,6 +512,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
           if (n === 1) {
             try {
               await Key.generate(cluster(n), { sum: true }, 1);
+              expectThrow();
             } catch (e) {
               expect(e).toStrictEqual(
                 Error(
@@ -505,6 +526,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             for (const t of [2 - n, n + 1]) {
               try {
                 await Key.generate(cluster(n), { sum: true }, t);
+                expectThrow();
               } catch (e) {
                 expect(e).toStrictEqual(
                   Error(
@@ -516,6 +538,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
 
             try {
               await Key.generate(cluster(n), { store: true }, n);
+              expectThrow();
             } catch (e) {
               expect(e).toStrictEqual(
                 Error("thresholds are only supported for the sum operation"),
@@ -536,6 +559,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             undefined,
             123 as unknown as string,
           );
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             TypeError("seed must be string, Uint8Array, or Buffer"),
@@ -550,6 +574,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
               undefined,
               "ABC",
             );
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error(
@@ -571,6 +596,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
               try {
                 const key = await Key.generate(cluster(n), ops);
                 await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+                expectThrow();
               } catch (e) {
                 expect(e).toStrictEqual(TypeError("secret key expected"));
               }
@@ -581,6 +607,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
               try {
                 const key = await Key.generate(cluster(n), ops);
                 await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+                expectThrow();
               } catch (e) {
                 expect(e).toStrictEqual(
                   Error("secret key must contain public key"),
@@ -594,6 +621,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
                 const key = await Key.generate(cluster(n), ops);
                 (key as unknown as { material: number }).material = 123;
                 await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+                expectThrow();
               } catch (e) {
                 expect(e).toStrictEqual(
                   TypeError("secret key material must be an object"),
@@ -604,6 +632,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
                 const key = await Key.generate(cluster(n), ops);
                 (key as unknown as { material: object }).material = {};
                 await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+                expectThrow();
               } catch (e) {
                 expect(e).toStrictEqual(
                   Error("secret key must contain public key"),
@@ -616,6 +645,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
                   key as unknown as { material: { publicKey: number } }
                 ).material.publicKey = 123;
                 await blindfold.PublicKey.generate(key as blindfold.SecretKey);
+                expectThrow();
               } catch (e) {
                 expect(e).toStrictEqual(
                   TypeError(
@@ -656,6 +686,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
           const secKeyObject = secKey.dump();
           delete secKeyObject["cluster" as keyof typeof secKeyObject];
           blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             TypeError("cluster configuration must be a simple object"),
@@ -668,6 +699,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
           const secKeyObject = secKey.dump() as { operations?: object };
           delete secKeyObject["operations" as keyof typeof secKeyObject];
           blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             TypeError("operations specification must be a simple object"),
@@ -681,6 +713,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
           (secKeyObject as unknown as { threshold: number }).threshold =
             "abc" as unknown as number;
           blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(TypeError("threshold must be a number"));
         }
@@ -691,6 +724,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
           const secKeyObject = secKey.dump();
           delete secKeyObject["material" as keyof typeof secKeyObject];
           blindfold.SecretKey.load(secKeyObject as secretKeyObjectType);
+          expectThrow();
         } catch (e) {
           expect(e).toStrictEqual(
             TypeError(
@@ -720,6 +754,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const secKeyForMatchObject = secKeyForMatch.dump();
         secKeyForStoreObject.material = secKeyForMatchObject.material;
         blindfold.SecretKey.load(secKeyForStoreObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key material must have a length of 32 bytes"),
@@ -731,6 +766,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const secKeyForMatchObject = secKeyForMatch.dump();
         secKeyForMatchObject.material = secKeyForStoreObject.material;
         blindfold.SecretKey.load(secKeyForMatchObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key material must have a length of 64 bytes"),
@@ -750,6 +786,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
           delete material[param as keyof typeof material];
         }
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key material must contain all required parameters"),
@@ -761,6 +798,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = secKeyObject.material as unknown as materialType;
         material[param as keyof typeof material] = 123 as unknown as string;
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           TypeError("key material parameter values must be strings"),
@@ -772,6 +810,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = secKeyObject.material as unknown as materialType;
         material[param as keyof typeof material] = "abc";
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -791,6 +830,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const secKeyObject = secKey.dump();
         secKeyObject.material = "abc" as unknown as number[];
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           TypeError(
@@ -804,6 +844,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = secKeyObject.material as number[];
         material.pop();
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -817,6 +858,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = secKeyObject.material as number[];
         material[0] = "abc" as unknown as number;
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(TypeError("key material must contain numbers"));
       }
@@ -826,6 +868,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = secKeyObject.material as number[];
         material[0] = 1.23;
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key material must contain integer numbers"),
@@ -837,6 +880,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = secKeyObject.material as number[];
         material[0] = 0; // Masks for secret shares must be nonzero.
         blindfold.SecretKey.load(secKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -866,6 +910,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
                 operations: blindfold.Operations;
               },
             );
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               TypeError("cluster configuration must be a simple object"),
@@ -879,6 +924,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             const cluKeyObject = cluKey.dump();
             cluKeyObject.cluster = cluster(n);
             blindfold.ClusterKey.load(cluKeyObject);
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error("cluster configuration must contain at least two nodes"),
@@ -893,6 +939,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             const cluKeyObject = cluKey.dump() as { operations?: object };
             delete cluKeyObject["operations" as keyof typeof cluKeyObject];
             blindfold.ClusterKey.load(cluKeyObject as clusterKeyObjectType);
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               TypeError("operations specification must be a simple object"),
@@ -908,6 +955,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             const cluKeyObject = cluKey.dump();
             cluKeyObject.operations = ops;
             blindfold.ClusterKey.load(cluKeyObject);
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error(
@@ -928,6 +976,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             blindfold.ClusterKey.load(
               cluKeyObject as unknown as clusterKeyObjectType,
             );
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(TypeError("threshold must be a number"));
           }
@@ -941,6 +990,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
             blindfold.ClusterKey.load(
               cluKeyObject as unknown as clusterKeyObjectType,
             );
+            expectThrow();
           } catch (e) {
             expect(e).toStrictEqual(
               Error("cluster keys cannot contain key material"),
@@ -965,6 +1015,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
       const pubKeyObject = pubKey.dump();
       delete pubKeyObject["cluster" as keyof typeof pubKeyObject];
       blindfold.PublicKey.load(pubKeyObject);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("cluster configuration must be a simple object"),
@@ -976,6 +1027,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
       const pubKeyObject = pubKey.dump();
       delete pubKeyObject["operations" as keyof typeof pubKeyObject];
       blindfold.PublicKey.load(pubKeyObject);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("operations specification must be a simple object"),
@@ -986,6 +1038,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
       const pubKeyObject = pubKey.dump();
       pubKeyObject.cluster = cluster(2);
       blindfold.PublicKey.load(pubKeyObject);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("public keys are only supported for single-node clusters"),
@@ -997,6 +1050,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const pubKeyObject = pubKey.dump();
         pubKeyObject.operations = ops;
         blindfold.PublicKey.load(pubKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("public keys can only support the sum operation"),
@@ -1008,6 +1062,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
       const pubKeyObject = pubKey.dump() as unknown as { threshold: number };
       pubKeyObject.threshold = 2;
       blindfold.PublicKey.load(pubKeyObject as unknown as publicKeyObjectType);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(Error("public keys cannot specify a threshold"));
     }
@@ -1016,6 +1071,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
       const pubKeyObject = pubKey.dump();
       delete pubKeyObject["material" as keyof typeof pubKeyObject];
       blindfold.PublicKey.load(pubKeyObject);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("key material must be a simple object"),
@@ -1028,6 +1084,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = pubKeyObject.material;
         delete material[param as keyof typeof material];
         blindfold.PublicKey.load(pubKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key material must contain all required parameters"),
@@ -1039,6 +1096,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = pubKeyObject.material;
         material[param as keyof typeof material] = 123 as unknown as string;
         blindfold.PublicKey.load(pubKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           TypeError("key material parameter values must be strings"),
@@ -1050,6 +1108,7 @@ describe("errors thrown by methods of cryptographic key classes", () => {
         const material = pubKeyObject.material;
         material[param as keyof typeof material] = "abc";
         blindfold.PublicKey.load(pubKeyObject);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -1244,6 +1303,7 @@ describe("errors involving encryption and decryption functions", () => {
       });
       secKey.operations = {};
       await blindfold.encrypt(secKey, 123);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("cannot encrypt the supplied plaintext using the supplied key"),
@@ -1256,6 +1316,7 @@ describe("errors involving encryption and decryption functions", () => {
       });
       secKey.material = new Uint8Array();
       await blindfold.encrypt(secKey, 123);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("cannot encrypt the supplied plaintext using the supplied key"),
@@ -1270,6 +1331,7 @@ describe("errors involving encryption and decryption functions", () => {
           secKey,
           Number(_PLAINTEXT_SIGNED_INTEGER_MAX) + 1,
         );
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("numeric plaintext must be a valid 32-bit signed integer"),
@@ -1281,6 +1343,7 @@ describe("errors involving encryption and decryption functions", () => {
           secKey,
           "x".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX + 1),
         );
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -1301,6 +1364,7 @@ describe("errors involving encryption and decryption functions", () => {
 
       try {
         await blindfold.encrypt(encKey, "abc");
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           TypeError(
@@ -1311,6 +1375,7 @@ describe("errors involving encryption and decryption functions", () => {
 
       try {
         await blindfold.encrypt(encKey, _PLAINTEXT_SIGNED_INTEGER_MAX + 1n);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("numeric plaintext must be a valid 32-bit signed integer"),
@@ -1327,6 +1392,7 @@ describe("errors involving encryption and decryption functions", () => {
       const cipher = await blindfold.encrypt(secKey, 123);
       secKey.operations = {};
       await blindfold.decrypt(secKey, cipher);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("cannot decrypt the supplied ciphertext using the supplied key"),
@@ -1341,6 +1407,7 @@ describe("errors involving encryption and decryption functions", () => {
       );
       cluKey.threshold = 4; // Invalid key manipulation.
       await blindfold.encrypt(cluKey, 123);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error(
@@ -1360,6 +1427,7 @@ describe("errors involving encryption and decryption functions", () => {
 
       try {
         await blindfold.decrypt(secKeyOne, cipherTwo);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key requires a valid ciphertext from a single-node cluster"),
@@ -1368,6 +1436,7 @@ describe("errors involving encryption and decryption functions", () => {
 
       try {
         await blindfold.decrypt(secKeyTwo, cipherOne);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error("key requires a valid ciphertext from a multiple-node cluster"),
@@ -1376,6 +1445,7 @@ describe("errors involving encryption and decryption functions", () => {
 
       try {
         await blindfold.decrypt(secKeyThree, cipherTwo);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -1395,6 +1465,7 @@ describe("errors involving encryption and decryption functions", () => {
         });
         const cipher = await blindfold.encrypt(secKey, 123);
         await blindfold.decrypt(secKeyAlt, cipher);
+        expectThrow();
       } catch (e) {
         expect(e).toStrictEqual(
           Error(
@@ -1412,6 +1483,7 @@ describe("errors involving encryption and decryption functions", () => {
       });
       const cipher = (await blindfold.encrypt(secKey, "abc")) as number[];
       await blindfold.decrypt(secKey, [123, cipher[1]]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         TypeError("secret shares must all be Base64-encoded binary values"),
@@ -1425,6 +1497,7 @@ describe("errors involving encryption and decryption functions", () => {
       const cipherOne = (await blindfold.encrypt(secKey, "")) as string[];
       const cipherTwo = (await blindfold.encrypt(secKey, "abc")) as string[];
       await blindfold.decrypt(secKey, [cipherOne[0], cipherTwo[1]]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("secret shares must have matching lengths"),
@@ -1437,6 +1510,7 @@ describe("errors involving encryption and decryption functions", () => {
       });
       const cipher = (await blindfold.encrypt(secKey, 123)) as string[];
       await blindfold.decrypt(secKey, ["abc", cipher[1]]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(TypeError("secret shares must all be integers"));
     }
@@ -1447,6 +1521,7 @@ describe("errors involving encryption and decryption functions", () => {
       });
       const cipher = (await blindfold.encrypt(secKey, 123)) as number[];
       await blindfold.decrypt(secKey, [-1, cipher[1]]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error(
@@ -1462,6 +1537,7 @@ describe("errors involving encryption and decryption functions", () => {
         2,
       );
       await blindfold.decrypt(secKey, [123, 456]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(TypeError("secret shares must all be arrays"));
     }
@@ -1474,6 +1550,7 @@ describe("errors involving encryption and decryption functions", () => {
       );
       const cipher = (await blindfold.encrypt(secKey, 123)) as number[][];
       await blindfold.decrypt(secKey, [cipher[0].slice(1), cipher[1]]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("secret shares must all have two components"),
@@ -1491,6 +1568,7 @@ describe("errors involving encryption and decryption functions", () => {
         [1, cipher[0][1]],
         [1, cipher[1][1]],
       ]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error(
@@ -1508,6 +1586,7 @@ describe("errors involving encryption and decryption functions", () => {
       );
       const cipher = (await blindfold.encrypt(secKey, 123)) as number[][];
       await blindfold.decrypt(secKey, [[cipher[0][0], -1], cipher[1]]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error(
@@ -1747,6 +1826,7 @@ describe("errors involving allotment and unification functions", () => {
   test("errors that can occur during allotment", async () => {
     try {
       blindfold.allot({ age: { "%allot": [1, 2, 3], extra: "ABC" } });
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(Error("allotment must only have one key"));
     }
@@ -1757,6 +1837,7 @@ describe("errors involving allotment and unification functions", () => {
         age: { "%allot": [1, 2, 3] },
         dat: { loc: { "%allot": [4, 5] } },
       });
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("number of shares in subdocument is not consistent"),
@@ -1769,6 +1850,7 @@ describe("errors involving allotment and unification functions", () => {
         { "%allot": [1, 2, 3] },
         { loc: { "%allot": [4, 5] } },
       ]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("number of shares in subdocument is not consistent"),
@@ -1783,6 +1865,7 @@ describe("errors involving allotment and unification functions", () => {
 
     try {
       await blindfold.unify(secretKey, [123, "abc"]);
+      expectThrow();
     } catch (e) {
       expect(e).toStrictEqual(
         Error("array of compatible document shares expected"),
