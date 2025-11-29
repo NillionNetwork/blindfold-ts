@@ -206,19 +206,23 @@ describe("errors that can occur within utility functions", () => {
  * Tests of methods of cryptographic key classes.
  */
 describe("methods of cryptographic key classes", () => {
-  test("generate, dump, JSONify, and load for the store operation", async () => {
-    for (const [Key, cluster_] of [
-      [blindfold.SecretKey, cluster(1)],
-      [blindfold.SecretKey, cluster(3)],
-      [blindfold.ClusterKey, cluster(3)],
+  test("generate, dump, JSONify, and load for the store operation (without/with threshold)", async () => {
+    for (const [Key, cluster_, threshold] of [
+      [blindfold.SecretKey, cluster(1), undefined],
+      [blindfold.SecretKey, cluster(3), undefined],
+      [blindfold.SecretKey, cluster(3), 1],
+      [blindfold.SecretKey, cluster(3), 2],
+      [blindfold.SecretKey, cluster(3), 3],
+      [blindfold.ClusterKey, cluster(3), undefined],
+      [blindfold.ClusterKey, cluster(3), 1],
+      [blindfold.ClusterKey, cluster(3), 2],
+      [blindfold.ClusterKey, cluster(3), 3],
     ] as [
       typeof blindfold.SecretKey | typeof blindfold.ClusterKey,
       blindfold.Cluster,
+      number | undefined,
     ][]) {
-      const key = await Key.generate(cluster_, {
-        store: true,
-      });
-
+      const key = await Key.generate(cluster_, { store: true }, threshold);
       const keyObject = JSON.parse(JSON.stringify(key.dump()));
       const keyLoaded = Key.load(keyObject);
       expect(keyLoaded).toBeInstanceOf(Key);
@@ -259,9 +263,11 @@ describe("methods of cryptographic key classes", () => {
   test("generate, dump, JSONify, and load for the sum operation with multiple (without/with threshold) nodes", async () => {
     for (const [Key, cluster_, threshold] of [
       [blindfold.SecretKey, cluster(3), undefined],
+      [blindfold.SecretKey, cluster(3), 1],
       [blindfold.SecretKey, cluster(3), 2],
       [blindfold.SecretKey, cluster(3), 3],
       [blindfold.ClusterKey, cluster(3), undefined],
+      [blindfold.ClusterKey, cluster(3), 1],
       [blindfold.ClusterKey, cluster(3), 2],
       [blindfold.ClusterKey, cluster(3), 3],
     ] as [
@@ -535,13 +541,17 @@ describe("errors thrown by methods of cryptographic key classes", () => {
                 );
               }
             }
+          }
 
+          if (Key === blindfold.SecretKey && n >= 2) {
             try {
-              await Key.generate(cluster(n), { store: true }, n);
+              await Key.generate(cluster(n), { match: true }, n);
               expectThrow();
             } catch (e) {
               expect(e).toStrictEqual(
-                Error("thresholds are only supported for the sum operation"),
+                Error(
+                  "thresholds are only supported for the store and sum operations",
+                ),
               );
             }
           }
@@ -1125,13 +1135,30 @@ describe("errors thrown by methods of cryptographic key classes", () => {
  */
 describe("encryption and decryption functions", () => {
   test("encryption and decryption for the store operation with single and multiple nodes", async () => {
-    for (const cluster_ of [cluster(1), cluster(2), cluster(3)]) {
+    // biome-ignore format: Concise list of test case parameter values.
+    for (const [cluster_, threshold, combinations] of [
+      [cluster(1), undefined, [[0]]],
+      [cluster(3), undefined, [[0, 1, 2]]],
+
+      // Scenarios with thresholds but no missing shares.
+      [cluster(3), 1, [[0, 1, 2]]],
+      [cluster(3), 2, [[0, 1, 2]]],
+      [cluster(3), 3, [[0, 1, 2]]],
+
+      // Scenarios with thresholds and missing shares.
+      [cluster(3), 2, [[0, 1], [0, 2], [1, 2]]],
+      [cluster(4), 2, [[0, 1], [1, 2], [2, 3], [0, 2], [1, 3], [0, 3], [0, 1, 2]]],
+      [cluster(4), 3, [[0, 1, 2], [1, 2, 3], [0, 1, 3], [0, 2, 3]]],
+      [cluster(5), 2, [[0, 4], [1, 3], [0, 2], [2, 3]]],
+      [cluster(5), 3, [[0, 1, 4], [1, 3, 4], [0, 2, 4], [1, 2, 3], [1, 2, 3, 4]]],
+      [cluster(5), 4, [[0, 1, 4, 2], [0, 1, 3, 4]]],
+    ] as [blindfold.Cluster, number, number[][]][]) {
       for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
         if (cluster_.nodes.length === 1 && Key === blindfold.ClusterKey) {
           continue;
         }
 
-        const key = await Key.generate(cluster_, { store: true });
+        const key = await Key.generate(cluster_, { store: true }, threshold);
         // biome-ignore format: Concise list of test case parameter values.
         for (const plaintext of (
           plaintextIntegerValues.concat([
@@ -1140,12 +1167,38 @@ describe("encryption and decryption functions", () => {
           ])
         )) {
           const ciphertext = await blindfold.encrypt(key, plaintext);
-          const decrypted = await blindfold.decrypt(key, ciphertext);
-          expect(decrypted).toEqual(
-            typeof plaintext === "number" ? BigInt(plaintext) : plaintext,
-          );
+          for (const combination of combinations) {
+            const decrypted = await blindfold.decrypt(
+              key,
+              threshold === undefined
+                ? ciphertext
+                : (combination.map((i) => ciphertext[i]) as number[]),
+            );
+            expect(decrypted).toEqual(
+              typeof plaintext === "number" ? BigInt(plaintext) : plaintext,
+            );
+          }
         }
       }
+    }
+
+    const key = await blindfold.ClusterKey.generate(
+      cluster(3),
+      { store: true },
+      2,
+    );
+    // biome-ignore format: Concise list of test case parameter values.
+    for (const plaintext of (
+      plaintextIntegerValues.concat([
+        "", "abc", "X".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX),
+        new Uint8Array([]), new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6, 7, 8, 9]),
+      ])
+    )) {
+      const ciphertext = await blindfold.encrypt(key, plaintext);
+      const decrypted = await blindfold.decrypt(key, ciphertext);
+      expect(decrypted).toEqual(
+        typeof plaintext === "number" ? BigInt(plaintext) : plaintext,
+      );
     }
   });
 

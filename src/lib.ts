@@ -51,6 +51,31 @@ function _mod(n: bigint, m: bigint): bigint {
 }
 
 /**
+ * Convert a `Uint8Array` to the unsigned `bigint` they represent (assuming
+ * a little-endian representation).
+ */
+function _bigIntFromUint8Array(array: Uint8Array): bigint {
+  return Array.from(array)
+    .reverse()
+    .reduce((acc, byte) => (acc << 8n) + BigInt(byte), 0n);
+}
+
+/**
+ * Convert an unsigned `bigint` to a `Uint8Array` that represents it (assuming
+ * a little-endian representation).
+ */
+function _bigIntToUint8Array(num: bigint, length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    // 1. Shift the required byte (i * 8 bits) to the least significant position
+    // 2. Apply a bitmask (0xFF) to get only the lowest 8 bits (the current byte)
+    // 3. Convert the result back to a standard number for storage in Uint8Array
+    bytes[i] = Number((num >> BigInt(i * 8)) & 0xffn);
+  }
+  return bytes;
+}
+
+/**
  * Componentwise XOR of two buffers.
  */
 function _xor(a: Buffer, b: Buffer): Buffer {
@@ -306,42 +331,6 @@ function _decode(bytes: Uint8Array): bigint | string | Uint8Array {
 }
 
 /**
- * Ensure the provided cluster configuration, operations specification, and
- * threshold are valid and compatible with one another.
- */
-function _validateKeyAttributes(
-  cluster: Cluster,
-  operations: Operations,
-  threshold: number | undefined = undefined,
-) {
-  if (threshold !== undefined) {
-    if (typeof threshold !== "number") {
-      throw new TypeError("threshold must be a number");
-    }
-
-    if (!Number.isInteger(threshold)) {
-      throw new Error("threshold must be an integer number");
-    }
-
-    if (cluster.nodes.length === 1) {
-      throw new Error(
-        "thresholds are only supported for multiple-node clusters",
-      );
-    }
-
-    if (threshold < 1 || threshold > cluster.nodes.length) {
-      throw new Error(
-        "threshold must be a positive integer not larger than the cluster size",
-      );
-    }
-
-    if (!operations.sum) {
-      throw new Error("thresholds are only supported for the sum operation");
-    }
-  }
-}
-
-/**
  * Cluster configuration information.
  */
 export class Cluster {
@@ -433,6 +422,44 @@ export class Operations {
 }
 
 /**
+ * Ensure the provided cluster configuration, operations specification, and
+ * threshold are valid and compatible with one another.
+ */
+function _validateKeyAttributes(
+  cluster: Cluster,
+  operations: Operations,
+  threshold: number | undefined = undefined,
+) {
+  if (threshold !== undefined) {
+    if (typeof threshold !== "number") {
+      throw new TypeError("threshold must be a number");
+    }
+
+    if (!Number.isInteger(threshold)) {
+      throw new Error("threshold must be an integer number");
+    }
+
+    if (cluster.nodes.length === 1) {
+      throw new Error(
+        "thresholds are only supported for multiple-node clusters",
+      );
+    }
+
+    if (threshold < 1 || threshold > cluster.nodes.length) {
+      throw new Error(
+        "threshold must be a positive integer not larger than the cluster size",
+      );
+    }
+
+    if (!operations.sum && !operations.store) {
+      throw new Error(
+        "thresholds are only supported for the store and sum operations",
+      );
+    }
+  }
+}
+
+/**
  * Data structure for representing all categories of secret key instances.
  */
 export class SecretKey {
@@ -450,6 +477,7 @@ export class SecretKey {
     this.cluster = cluster;
     this.operations = operations;
 
+    delete this.threshold; // Ensure there is no key in the object.
     if (threshold !== undefined) {
       this.threshold = threshold;
     }
@@ -573,6 +601,7 @@ export class SecretKey {
       material: [],
     };
 
+    delete object.threshold; // Ensure there is no key in the object.
     if (this.threshold !== undefined) {
       object.threshold = this.threshold;
     }
@@ -775,6 +804,7 @@ export class ClusterKey {
     this.cluster = cluster;
     this.operations = operations;
 
+    delete this.threshold; // Ensure there is no key in the object.
     if (threshold !== undefined) {
       this.threshold = threshold;
     }
@@ -826,6 +856,8 @@ export class ClusterKey {
       cluster: this.cluster,
       operations: this.operations,
     };
+
+    delete object.threshold; // Ensure there is no key in the object.
     if ("threshold" in this) {
       object.threshold = this.threshold;
     }
@@ -1096,17 +1128,74 @@ export async function encrypt(
       return _pack(optionalEncrypt(new Uint8Array(buffer)));
     }
 
-    // For multiple-node clusters, a secret-shared plaintext is obtained using
-    // XOR (with each share symmetrically encrypted in the case of a secret key).
-    const shares: Uint8Array[] = [];
-    let aggregate = Buffer.alloc(buffer.length, 0);
-    for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
-      const mask = Buffer.from(sodium.randombytes_buf(buffer.length));
-      aggregate = _xor(aggregate, mask);
-      shares.push(optionalEncrypt(mask));
+    // For multiple-node clusters and no threshold, a secret-shared plaintext
+    // is obtained using XOR (with each share symmetrically encrypted in the
+    // case of a secret key).
+    if (!("threshold" in key)) {
+      const shares: Uint8Array[] = [];
+      let aggregate = Buffer.alloc(buffer.length, 0);
+      for (let i = 0; i < key.cluster.nodes.length - 1; i++) {
+        const mask = Buffer.from(sodium.randombytes_buf(buffer.length));
+        aggregate = _xor(aggregate, mask);
+        shares.push(optionalEncrypt(mask));
+      }
+      shares.push(optionalEncrypt(_xor(aggregate, buffer)));
+      return shares.map(_pack);
     }
-    shares.push(optionalEncrypt(_xor(aggregate, buffer)));
-    return shares.map(_pack);
+
+    // For multiple-node clusters and a threshold, the plaintext is converted
+    // into secret shares using Shamir's secret sharing scheme (with each share
+    // symmetrically encrypted in the case of a secret key).
+
+    // Pad the buffer to ensure its length is a multiple of four.
+    const padding = 4 - (buffer.length % 4);
+    const padded = _concat(new Uint8Array(padding).fill(255), buffer);
+
+    // Split into subarrays of length four.
+    const subarrays = [];
+    for (let i = 0; i < padded.length; i += 4) {
+      subarrays.push(padded.subarray(i, i + 4));
+    }
+
+    // Build up shares of the plaintext where each share is actually a list of
+    // shares (one such share per subarray of the plaintext).
+    const sharesOfArray: bigint[][][] = [];
+    for (let i = 0; i < key.cluster.nodes.length; i++) {
+      sharesOfArray.push([]);
+    }
+    for (const subarray of subarrays) {
+      const subarrayAsBigInt = _bigIntFromUint8Array(subarray);
+      const subarrayAsShares: [bigint, bigint][] = await _shamirsShares(
+        subarrayAsBigInt,
+        key.cluster.nodes.length,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+        key.threshold,
+      );
+      for (let i = 0; i < subarrayAsShares.length; i++) {
+        sharesOfArray[i].push(subarrayAsShares[i]);
+      }
+    }
+
+    // Convert each share from a list (of subarray shares) representation into
+    // a single integer representation.
+    const shares = [];
+    for (let i = 0; i < sharesOfArray.length; i++) {
+      const shareOfArray = sharesOfArray[i];
+
+      // Each Shamir's share has an index and a value component. The index
+      // will not change within each share (assuming the share indices are
+      // always the same and in the same order). Therefore, the index is
+      // only stored once to reduce its overhead.
+      const index = _bigIntToUint8Array(shareOfArray[0][0], 4);
+      let shareOfArrayAsBytes = index;
+      for (const subarrayShare of shareOfArray) {
+        const value = _bigIntToUint8Array(subarrayShare[1], 5);
+        shareOfArrayAsBytes = _concat(shareOfArrayAsBytes, value);
+      }
+      shares.push(_pack(optionalEncrypt(shareOfArrayAsBytes)));
+    }
+
+    return shares;
   }
 
   // Encrypt (i.e., hash) a plaintext for matching.
@@ -1311,17 +1400,73 @@ export async function decrypt(
     // Each share consists of Base64-encoded (possibly encrypted) binary data.
     const shares = (ciphertext as string[]).map(_unpack).map(optionalDecrypt);
 
-    // For multiple-node clusters, the plaintext is secret-shared using XOR.
-    // Accept only arrays of XOR secret shares that all have the same length.
-    if ([...new Set(shares.map((share) => share.length))].length !== 1) {
-      throw Error("secret shares must have matching lengths");
+    // For multiple-node clusters and no threshold, the plaintext is
+    // secret-shared using XOR.
+    if (!("threshold" in key)) {
+      // Accept only arrays of XOR secret shares that all have the same length.
+      if ([...new Set(shares.map((share) => share.length))].length !== 1) {
+        throw Error("secret shares must have matching lengths");
+      }
+
+      // Build up encoded plaintext as `buffer`; its decoding is then returned.
+      let buffer = Buffer.from(shares[0]);
+      for (let i = 1; i < shares.length; i++) {
+        buffer = Buffer.from(_xor(buffer, Buffer.from(shares[i])));
+      }
+      return _decode(buffer);
     }
 
+    // For multiple-node clusters and a threshold, Shamir's secret sharing is
+    // used to create a secret-shared plaintext.
+
+    // Accept only sequences of shares having sufficient and matching lengths.
+    const _lengths = shares.map((share) => share.length);
+    /*if not (len(lengths) == 1 and lengths[0] >= 9):
+        raise ValueError('secret shares must have sufficient and matching lengths')
+    */
+
     // Build up encoded plaintext as `buffer`; its decoding is then returned.
-    let buffer = Buffer.from(shares[0]);
-    for (let i = 1; i < shares.length; i++) {
-      buffer = Buffer.from(_xor(buffer, Buffer.from(shares[i])));
+
+    // Begin to extract the indices and values of the individual Shamir's
+    // shares that were all concatenated together during encryption.
+    const sharesOfPlaintext = [];
+    const indices: bigint[] = []; // Ordered list of indices for the shares of the plaintext.
+    for (const share of shares) {
+      const valuesAsUin8Array = share.subarray(4);
+      const arrayOfShamirsShares = [];
+      for (let i = 0; i < valuesAsUin8Array.length; i += 5) {
+        arrayOfShamirsShares.push(valuesAsUin8Array.subarray(i, i + 5));
+      }
+      sharesOfPlaintext.push(arrayOfShamirsShares);
+      indices.push(_bigIntFromUint8Array(share.subarray(0, 4)));
     }
+    const numberOfPlaintextSubarrays = sharesOfPlaintext[0].length;
+
+    // Accumulator for assembling plaintext as an array of bytes.
+    let buffer = new Uint8Array();
+
+    // Iterate over subarrays making up the plaintext.
+    for (let i = 0; i < numberOfPlaintextSubarrays; i++) {
+      const subarrayShares: [bigint, bigint][] = [];
+      for (let j = 0; j < sharesOfPlaintext.length; j++) {
+        subarrayShares.push([
+          indices[j],
+          _bigIntFromUint8Array(sharesOfPlaintext[j][i]),
+        ]);
+      }
+      const subarrayAsBigInt = _shamirsRecover(
+        subarrayShares,
+        _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+      );
+      buffer = _concat(buffer, _bigIntToUint8Array(subarrayAsBigInt, 4));
+    }
+
+    // Drop padding bytes (added during encryption so that byte count is a
+    // multiple of four).
+    while (buffer.length > 0 && buffer[0] === 255) {
+      buffer = buffer.subarray(1);
+    }
+
     return _decode(buffer);
   }
 

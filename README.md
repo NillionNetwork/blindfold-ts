@@ -16,6 +16,7 @@ This library provides cryptographic operations that are compatible with nilDB no
 | single node    | match     | deterministic salted hashing via SHA-512                          | 32-bit signed integer; UTF-8 string (<4097 bytes) |
 | single node    | sum       | non-deterministic Paillier with 2048-bit primes                   | 32-bit signed integer                             |
 | multiple nodes | store     | XOR-based secret sharing                                          | 32-bit signed integer; UTF-8 string (<4097 bytes) |
+| multiple nodes | store     | Shamir's secret sharing (with threshold; prime modulus 2^32 + 15) | 32-bit signed integer; UTF-8 string (<4097 bytes) |
 | multiple nodes | match     | deterministic salted hashing via SHA-512                          | 32-bit signed integer; UTF-8 string (<4097 bytes) |
 | multiple nodes | sum       | additive secret sharing (no threshold; prime modulus 2^32 + 15)   | 32-bit signed integer                             |
 | multiple nodes | sum       | Shamir's secret sharing (with threshold; prime modulus 2^32 + 15) | 32-bit signed integer                             |
