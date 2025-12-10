@@ -9,6 +9,11 @@ import { describe, expect, test } from "vitest";
 import * as blindfold from "#/lib";
 
 /**
+ * Length in bits of Paillier keys.
+ */
+const _PAILLIER_KEY_LENGTH: number = 2048;
+
+/**
  * Modulus to use for secret shares of 32-bit signed integers.
  */
 const _SECRET_SHARED_SIGNED_INTEGER_MODULUS: bigint = 2n ** 32n + 15n;
@@ -43,11 +48,32 @@ const seedValues = [
   ),
 ];
 
-// biome-ignore format: Concise list of test case parameter values.
-const plaintextIntegerValues = [
+/**
+ * Integer plaintext values used throughout the tests.
+ */
+// biome-ignore format: Concise list of test case plaintext values.
+const plaintextIntegerValues: (number | bigint | string | Uint8Array)[] = [
   _PLAINTEXT_SIGNED_INTEGER_MIN, -123n, 0n, 123n, _PLAINTEXT_SIGNED_INTEGER_MAX,
   Number(_PLAINTEXT_SIGNED_INTEGER_MIN), -123, 0, 123, Number(_PLAINTEXT_SIGNED_INTEGER_MAX),
-] as (number | bigint | string | Uint8Array)[];
+];
+
+/**
+ * String plaintext values used throughout the tests.
+ */
+// biome-ignore format: Concise list of test case plaintext values.
+const plaintextStringValues: (number | bigint | string | Uint8Array)[] = [
+  0, 1, 3, 5, 10, 50, 256, 385, 500, 1000, 2000,
+  _PLAINTEXT_STRING_BUFFER_LEN_MAX,
+].map((length) => "x".repeat(length));
+
+/**
+ * Binary array plaintext values used throughout the tests.
+ */
+// biome-ignore format: Concise list of test case plaintext values.
+const plaintextUint8ArrayValues: (number | bigint | string | Uint8Array)[] = [
+  new Uint8Array([]), new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6, 7, 8, 9]),
+  new Uint8Array(_PLAINTEXT_STRING_BUFFER_LEN_MAX),
+]
 
 /**
  * Precomputed constant that can be reused to reduce running time of tests.
@@ -238,8 +264,8 @@ describe("methods of cryptographic key classes", () => {
   test("generate, dump, JSONify, and load for the store operation (without/with threshold)", async () => {
     for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
       for (const n of [1, 2, 3]) {
-        for (const t of thresholds(n)) {
-          if (!(Key === blindfold.ClusterKey && n === 1)) {
+        if (!(Key === blindfold.ClusterKey && n === 1)) {
+          for (const t of thresholds(n)) {
             const key = await Key.generate(cluster(n), { store: true }, t);
             testKeyMethodsDumpLoad(Key, key);
           }
@@ -267,8 +293,8 @@ describe("methods of cryptographic key classes", () => {
   test("generate, dump, JSONify, and load for the sum operation with multiple (without/with threshold) nodes", async () => {
     for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
       for (const n of [1, 2, 3]) {
-        for (const t of thresholds(n)) {
-          if (!(Key === blindfold.ClusterKey && n === 1)) {
+        if (!(Key === blindfold.ClusterKey && n === 1)) {
+          for (const t of thresholds(n)) {
             const key = await Key.generate(cluster(n), { sum: true }, t);
             testKeyMethodsDumpLoad(Key, key);
           }
@@ -1131,6 +1157,10 @@ describe("errors thrown by methods of cryptographic key classes", () => {
  */
 describe("encryption and decryption functions", () => {
   test("encryption and decryption for the store operation with single and multiple (without/with threshold) nodes", async () => {
+    const plaintexts = plaintextIntegerValues
+      .concat(plaintextStringValues)
+      .concat(plaintextUint8ArrayValues);
+
     // biome-ignore format: Concise list of test case parameter values.
     for (const [n, t, combinations] of [
       [1, undefined, [[0]]],
@@ -1157,13 +1187,7 @@ describe("encryption and decryption functions", () => {
       for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
         if (!(n === 1 && Key === blindfold.ClusterKey)) {
           const key = await Key.generate(cluster(n), { store: true }, t);
-          // biome-ignore format: Concise list of test case parameter values.
-          for (const plaintext of (
-            plaintextIntegerValues.concat([
-              "", "abc", "X".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX),
-              new Uint8Array([]), new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6, 7, 8, 9]),
-            ])
-          )) {
+          for (const plaintext of plaintexts) {
             const ciphertext = await blindfold.encrypt(key, plaintext);
             for (const combination of combinations) {
               const decrypted = await blindfold.decrypt(
@@ -1186,13 +1210,7 @@ describe("encryption and decryption functions", () => {
       { store: true },
       2,
     );
-    // biome-ignore format: Concise list of test case parameter values.
-    for (const plaintext of (
-      plaintextIntegerValues.concat([
-        "", "abc", "X".repeat(_PLAINTEXT_STRING_BUFFER_LEN_MAX),
-        new Uint8Array([]), new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6, 7, 8, 9]),
-      ])
-    )) {
+    for (const plaintext of plaintexts) {
       const ciphertext = await blindfold.encrypt(key, plaintext);
       const decrypted = await blindfold.decrypt(key, ciphertext);
       expect(decrypted).toEqual(
@@ -1312,7 +1330,7 @@ describe("encryption and decryption functions", () => {
  * Tests of the portability of representations of keys and ciphertexts.
  */
 describe("portable representations of keys and ciphertexts", () => {
-  test("representations for the store operations with a single node", async () => {
+  test("representations for the store operation with a single node", async () => {
     const plaintext = "abc";
     const secretKey = blindfold.SecretKey.load({
       cluster: cluster(1),
@@ -1544,6 +1562,84 @@ describe("portable representations of keys and ciphertexts", () => {
         [3, 2621193783],
       ];
       expect(await blindfold.decrypt(secretKey, ciphertext)).toEqual(plaintext);
+    }
+  });
+});
+
+/**
+ * Tests that ciphertext sizes conform to known closed formulas.
+ */
+describe("ciphertexts have the expected sizes", () => {
+  test("ciphertext sizes for the store operation", async () => {
+    for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
+      for (const n of [1, 2, 3]) {
+        if (!(Key === blindfold.ClusterKey && n === 1)) {
+          for (const t of thresholds(n)) {
+            const key = await Key.generate(cluster(n), { store: true }, t);
+            for (const plaintext of plaintextStringValues as string[]) {
+              const cipher = await blindfold.encrypt(key, plaintext);
+              const symmetricOverhead = Key === blindfold.SecretKey ? 40 : 0;
+              const k = plaintext.length;
+              expect(
+                (n >= 2 ? (cipher[0] as string) : (cipher as string)).length,
+              ).toBeLessThanOrEqual(
+                t === undefined
+                  ? Math.ceil((1 + k + symmetricOverhead) * (4 / 3)) + 2
+                  : Math.ceil(
+                      Math.ceil((1 + k + 3) * (5 / 4) + 5 + symmetricOverhead) *
+                        (4 / 3),
+                    ) + 2,
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
+  test("ciphertext sizes for the match operation", async () => {
+    for (const n of [1, 2, 3]) {
+      const secKey = await blindfold.SecretKey.generate(cluster(n), {
+        match: true,
+      });
+      for (const plaintext of plaintextStringValues) {
+        const cipher = await blindfold.encrypt(secKey, plaintext);
+        expect(
+          (n >= 2 ? (cipher[0] as string) : (cipher as string)).length,
+        ).toEqual(88);
+      }
+    }
+  });
+
+  test("ciphertext sizes for the sum operation", async () => {
+    for (const plaintext of plaintextIntegerValues) {
+      const secKey = await blindfold.SecretKey.generate(cluster(1), {
+        sum: true,
+      });
+      const pubKey = await blindfold.PublicKey.generate(secKey);
+      const cipher = await blindfold.encrypt(pubKey, plaintext);
+      expect(cipher.length).toBeLessThanOrEqual(_PAILLIER_KEY_LENGTH);
+
+      for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
+        for (const n of [2, 3]) {
+          for (const t of thresholds(n)) {
+            const key = await Key.generate(cluster(n), { sum: true }, t);
+            const shares = await blindfold.encrypt(key, plaintext);
+            if (t === undefined) {
+              expect((shares as number[])[0]).toBeLessThan(
+                _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+              );
+            } else {
+              expect((shares as [number, number][])[0][0]).toBeLessThan(
+                _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+              );
+              expect((shares as [number, number][])[0][1]).toBeLessThan(
+                _SECRET_SHARED_SIGNED_INTEGER_MODULUS,
+              );
+            }
+          }
+        }
+      }
     }
   });
 });

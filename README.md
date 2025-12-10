@@ -43,6 +43,25 @@ The library can be imported in the usual way:
 import { blindfold } from "@nillion/blindfold";
 ```
 
+### Ciphertext Overheads
+
+The table below presents tight upper bounds on ciphertext sizes (in bytes) for each supported protocol when it is used to encrypt a plaintext having *k* bytes. For multiple-node protocols, the size of the ciphertext delivered to an individual node is reported (excluding any overheads associated with the container type within which separate ciphertext components such as the share index and value reside). The upper bounds below are checked within the testing script.
+
+| Cluster        | Key Type | Operation         | Implementation Details                              | Approx.   |
+|----------------|----------|-------------------|-----------------------------------------------------|-----------|
+| single node    | Secret   | store             | 2 + **ceil** [(4/3)(*k* + 41)]                      | (4/3) *k* |
+| single node    | Secret   | match             | 88                                                  | 88        |
+| single node    | Secret   | sum               | 2048                                                | 2048      |
+| multiple nodes | Secret   | store             | 2 + **ceil** [(4/3)(*k* + 41)]                      | (4/3) *k* |
+| multiple nodes | Secret   | store (threshold) | 2 + **ceil** [(4/3) **ceil** [(5/4)(*k* + 4) + 45]] | (5/3) *k* |
+| multiple nodes | Secret   | match             | 88                                                  | 88        |
+| multiple nodes | Secret   | sum               | 4                                                   | 4         |
+| multiple nodes | Secret   | sum (threshold)   | 8                                                   | 8         |
+| multiple nodes | Cluster  | store             | 2 + **ceil** ((4/3)(k + 1))                         | (4/3) *k* |
+| multiple nodes | Cluster  | store (threshold) | 2 + **ceil** [(4/3) **ceil** [(5/4)(*k* + 4) + 5]]  | (5/3) *k* |
+| multiple nodes | Cluster  | sum               | 4                                                   | 4         |
+| multiple nodes | Cluster  | sum (threshold)   | 8                                                   | 8         |
+
 ### Example: Generating Keys
 
 The example below generates a `SecretKey` instance for a single-node cluster:
