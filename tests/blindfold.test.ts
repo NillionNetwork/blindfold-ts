@@ -11,7 +11,7 @@ import * as blindfold from "#/lib";
 /**
  * Length in bits of Paillier keys.
  */
-const _PAILLIER_KEY_LENGTH: number = 2048;
+const _PAILLIER_PRIME_BIT_LENGTH: number = 2048;
 
 /**
  * Modulus to use for secret shares of 32-bit signed integers.
@@ -1618,7 +1618,10 @@ describe("ciphertexts have the expected sizes", () => {
       });
       const pubKey = await blindfold.PublicKey.generate(secKey);
       const cipher = await blindfold.encrypt(pubKey, plaintext);
-      expect(cipher.length).toBeLessThanOrEqual(_PAILLIER_KEY_LENGTH);
+      // The ciphertext's bit length is four times as large as the bit length
+      // of the primes generated for the secret key. This bit length is then
+      // divided by four to determine the length of its hex representation.
+      expect(cipher.length).toEqual((_PAILLIER_PRIME_BIT_LENGTH * 4) / 4);
 
       for (const Key of [blindfold.SecretKey, blindfold.ClusterKey]) {
         for (const n of [2, 3]) {

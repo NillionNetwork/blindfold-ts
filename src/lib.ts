@@ -11,7 +11,7 @@ import * as paillierBigint from "paillier-bigint";
 /**
  * Length in bits of Paillier keys.
  */
-const _PAILLIER_KEY_LENGTH: number = 2048;
+const _PAILLIER_PRIME_BIT_LENGTH: number = 2048;
 
 /**
  * Modulus to use for secret shares of 32-bit signed integers.
@@ -544,8 +544,9 @@ export class SecretKey {
           );
         }
 
-        const { privateKey } =
-          await paillierBigint.generateRandomKeys(_PAILLIER_KEY_LENGTH);
+        const { privateKey } = await paillierBigint.generateRandomKeys(
+          _PAILLIER_PRIME_BIT_LENGTH * 2,
+        );
 
         // Discard cached prime factor attributes for consistency.
         material_ = new paillierBigint.PrivateKey(
@@ -1243,9 +1244,15 @@ export async function encrypt(
           .material as paillierBigint.PublicKey;
       }
 
+      // The ciphertext's bit length is four times as large as the bit length
+      // of the primes generated for the secret key. This bit length is then
+      // divided by four to determine the length of its hex representation.
+      // The ciphertext is then padded to always have the same length (in case
+      // the underlying integer happens to have a shorter representation).
       return paillierPublicKey
         .encrypt(bigInt + (bigInt < 0 ? paillierPublicKey.n : 0n))
-        .toString(16);
+        .toString(16)
+        .padStart((_PAILLIER_PRIME_BIT_LENGTH * 4) / 4, "0");
     }
 
     // For multiple-node clusters and no threshold, additive secret sharing is used.
