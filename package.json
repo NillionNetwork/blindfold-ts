@@ -1,7 +1,7 @@
 {
   "name": "@nillion/blindfold",
-  "version": "0.1.0",
-  "description": "Library for working with encrypted data within NilDB queries and replies.",
+  "version": "1.0.0rc1",
+  "description": "Library for working with encrypted data within nilDB queries and replies.",
   "license": "MIT",
   "homepage": "https://github.com/nillionnetwork/blindfold-ts",
   "type": "module",

@@ -4,7 +4,6 @@
 [![ci](https://github.com/nillionnetwork/blindfold-ts/actions/workflows/ci.yaml/badge.svg)](https://github.com/nillionnetwork/blindfold-ts/actions)
 [![coveralls](https://coveralls.io/repos/github/NillionNetwork/blindfold-ts/badge.svg?branch=main)](https://coveralls.io/github/NillionNetwork/blindfold-ts)
 
-Library for working with encrypted data within nilDB queries and replies.
 Library for working with encrypted data within [nilDB](https://docs.nillion.com/build/nildb) queries and replies.
 
 ## Description and Purpose
