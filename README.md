@@ -6,9 +6,9 @@
 
 Library for working with encrypted data within [nilDB](https://docs.nillion.com/build/nildb) queries and replies.
 
-## Description and Purpose
+## Purpose
 
-This library provides cryptographic operations that are compatible with [nilDB](https://docs.nillion.com/build/nildb) nodes and clusters, allowing developers to leverage certain privacy-enhancing technologies (PETs) when storing, operating upon, and retrieving data while working with nilDB.
+This library provides cryptographic operations that are compatible with [nilDB](https://docs.nillion.com/build/nildb) nodes and clusters, allowing developers to leverage certain privacy-enhancing technologies (PETs) such as [partially homomorphic encryption (PHE)](https://en.wikipedia.org/wiki/Paillier_cryptosystem) and [secure multi-party computation (MPC)](https://en.wikipedia.org/wiki/Secure_multi-party_computation) when storing, operating upon, and retrieving data while working with nilDB.
 
 ## Package Installation and Usage
 
@@ -24,21 +24,6 @@ The library can be imported in the usual way:
 import { blindfold } from "@nillion/blindfold";
 ```
 
-### Supported Protocols
-
-The table below summarizes the data encryption protocols that this library makes available. The table also specifies which operation involving ciphertexts is supported by each protocol. Note that support for summation of encrypted values implies support both for subtraction of encrypted values from other encrypted values and for multiplication of encrypted values by a plaintext signed integer scalar.
-
-| Cluster        | Operation | Implementation Details                          | Supported Types                                   |
-|----------------|-----------|-------------------------------------------------|---------------------------------------------------|
-| single node    | store     | XSalsa20 stream cipher and Poly1305 MAC         | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| single node    | match     | deterministic salted hashing via SHA-512        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| single node    | sum       | non-deterministic Paillier with 2048-bit primes | 32-bit signed integer                             |
-| multiple nodes | store     | XOR-based secret sharing                        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| multiple nodes | store     | Shamir's secret sharing (with threshold)        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| multiple nodes | match     | deterministic salted hashing via SHA-512        | 32-bit signed integer; UTF-8 string (<4097 bytes) |
-| multiple nodes | sum       | additive secret sharing                         | 32-bit signed integer                             |
-| multiple nodes | sum       | Shamir's secret sharing (with threshold)        | 32-bit signed integer                             |
-
 ### Categories of Encryption Keys
 
 This library uses the attributes of a key object (instantiated using an appropriate constructor) to determine what protocol to use when encrypting a plaintext. Keys fall into one of two categories:
@@ -47,30 +32,50 @@ This library uses the attributes of a key object (instantiated using an appropri
 
 2. `ClusterKey`: Keys in this category represent cluster configurations but do not contain cryptographic material. These can be used only when working with multiple-node clusters. Unlike `SecretKey` and `PublicKey` instances, `ClusterKey` instances do not incorporate additional cryptographic material. This means each node in a cluster has access to a raw secret share of the plaintext and, therefore, the plaintext is only protected if the nodes in the cluster do not collude.
 
+### Supported Protocols
+
+The table below summarizes the data encryption protocols that this library makes available (and which a developer may leverage by creating a key object with the appropriate attributes). The table also specifies which operation involving ciphertexts is supported by each protocol. Support for summation of encrypted values implies support both for subtraction of encrypted values from other encrypted values and for multiplication of encrypted values by a plaintext signed integer scalar.
+
+| Cluster        | Key Types                   | Operation | Protocols                                                                                                            | Plaintext Types                                              |
+|----------------|-----------------------------|-----------|----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
+| single node    | `SecretKey`                 | store     | [XSalsa20 stream cipher and Poly1305 MAC](https://eprint.iacr.org/2011/646)                                          | 32-bit signed integer; UTF-8 text or byte array (4096 bytes) |
+| single node    | `SecretKey`                 | match     | [deterministic salted hashing](https://www.sciencedirect.com/science/article/abs/pii/S0306437912001470) with SHA-512 | 32-bit signed integer; UTF-8 text or byte array (4096 bytes) |
+| single node    | `SecretKey` and `PublicKey` | sum       | [Paillier cryptosystem](https://en.wikipedia.org/wiki/Paillier_cryptosystem) with 2048-bit primes                    | 32-bit signed integer                                        |
+| multiple nodes | `SecretKey` or `ClusterKey` | store     | [XOR secret sharing](https://ieeexplore.ieee.org/document/6769090) (*n*-out-of-*n*)                                  | 32-bit signed integer; UTF-8 text or byte array (4096 bytes) |
+| multiple nodes | `SecretKey` or `ClusterKey` | store     | [Shamir's secret sharing](https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing) (threshold)                       | 32-bit signed integer; UTF-8 text or byte array (4096 bytes) |
+| multiple nodes | `SecretKey`                 | match     | [deterministic salted hashing](https://www.sciencedirect.com/science/article/abs/pii/S0306437912001470) with SHA-512 | 32-bit signed integer; UTF-8 text or byte array (4096 bytes) |
+| multiple nodes | `SecretKey` or `ClusterKey` | sum       | [additive secret sharing](https://link.springer.com/chapter/10.1007/3-540-45539-6_22) (*n*-out-of-*n*)               | 32-bit signed integer                                        |
+| multiple nodes | `SecretKey` or `ClusterKey` | sum       | [Shamir's secret sharing](https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing) (threshold)                       | 32-bit signed integer                                        |
+
 ### More Details on Secret Sharing
 
 When working with multiple-node clusters and encrypting data for compatibility with the store operation using a `SecretKey` instance, each secret share is encrypted using a symmetric key (the material for which is stored inside the `SecretKey` instance). However, when encrypting for compatibility with the sum operation (without or with a threshold), each secret share is instead *masked* via multiplication with a secret nonzero scalar (with one secret scalar per node stored in the `SecretKey` instance). While this ensures that the secret-shared plaintexts encrypted in this way are compatible with addition and scalar multiplication, users should use this feature only if they have a thorough understanding of the privacy and security trade-offs involved.
 
-Threshold secret sharing is supported when encrypting for multiple-node clusters (with the exception of encrypting for compatibility with the match operation). A threshold specifies the minimum number of nodes required to reconstruct the original data. Shamir's secret sharing is employed when encrypting with support for a threshold, ensuring that encrypted data can only be decrypted if the required number of shares is available.
+Threshold secret sharing is supported when encrypting for multiple-node clusters (with the exception of encrypting for compatibility with the match operation). A threshold specifies the minimum number of nodes required to reconstruct the original data. Shamir's secret sharing is employed when encrypting with support for a threshold, ensuring that encrypted data can be decrypted if the required number of shares is available.
 
 ### Ciphertext Overheads
 
-The table below presents tight upper bounds on ciphertext sizes (in bytes) for each supported protocol when it is used to encrypt a plaintext having *k* bytes. For multiple-node protocols, the size of the ciphertext delivered to an individual node is reported (excluding any overheads associated with the container type within which separate ciphertext components such as the share index and value reside). The upper bounds below are checked within the testing script.
+The tables below present tight upper bounds on ciphertext sizes (in bytes) for each supported protocol when it is used to encrypt a plaintext having *k* bytes (where a 32-bit integer plaintext is represented using 4 bytes). For multiple-node protocols appearing in both tables, the size of the ciphertext delivered to an individual node is reported (excluding any overheads associated with the container type within which separate ciphertext components such as the share index and value reside). The upper bounds in both tables are checked within the testing script.
 
-| Cluster        | Key Type | Operation         | Implementation Details                              | Approx.   |
-|----------------|----------|-------------------|-----------------------------------------------------|-----------|
-| single node    | Secret   | store             | 2 + **ceil** [(4/3)(*k* + 41)]                      | (4/3) *k* |
-| single node    | Secret   | match             | 88                                                  | 88        |
-| single node    | Secret   | sum               | 2048                                                | 2048      |
-| multiple nodes | Secret   | store             | 2 + **ceil** [(4/3)(*k* + 41)]                      | (4/3) *k* |
-| multiple nodes | Secret   | store (threshold) | 2 + **ceil** [(4/3) **ceil** [(5/4)(*k* + 4) + 45]] | (5/3) *k* |
-| multiple nodes | Secret   | match             | 88                                                  | 88        |
-| multiple nodes | Secret   | sum               | 4                                                   | 4         |
-| multiple nodes | Secret   | sum (threshold)   | 8                                                   | 8         |
-| multiple nodes | Cluster  | store             | 2 + **ceil** ((4/3)(k + 1))                         | (4/3) *k* |
-| multiple nodes | Cluster  | store (threshold) | 2 + **ceil** [(4/3) **ceil** [(5/4)(*k* + 4) + 5]]  | (5/3) *k* |
-| multiple nodes | Cluster  | sum               | 4                                                   | 4         |
-| multiple nodes | Cluster  | sum (threshold)   | 8                                                   | 8         |
+| Cluster        | Key Types                   | Operation              | Exact Upper Bound in Bytes                          | Approximation |
+|----------------|-----------------------------|------------------------|-----------------------------------------------------|---------------|
+| single node    | `SecretKey`                 | store                  | 2 + **ceil** [(4/3)(*k* + 41)]                      | (4/3) *k*     |
+| single node    | `SecretKey`                 | match                  | 88                                                  | 88            |
+| single node    | `SecretKey` and `PublicKey` | sum                    | 2048                                                | 2048          |
+| multiple nodes | `SecretKey`                 | store (*n*-out-of-*n*) | 2 + **ceil** [(4/3)(*k* + 41)]                      | (4/3) *k*     |
+| multiple nodes | `SecretKey`                 | store (threshold)      | 2 + **ceil** [(4/3) **ceil** [(5/4)(*k* + 4) + 45]] | (5/3) *k*     |
+| multiple nodes | `SecretKey`                 | match                  | 88                                                  | 88            |
+| multiple nodes | `SecretKey`                 | sum (*n*-out-of-*n*)   | 4                                                   | 4             |
+| multiple nodes | `SecretKey`                 | sum (threshold)        | 8                                                   | 8             |
+
+The below table lists the upper bounds for ciphertext sizes when encrypting using a `ClusterKey`. The only difference from the corresponding upper bounds when using a `SecretKey` is the absence of a 40-byte overhead (associated with symmetric encryption) when encrypting for storage.
+
+| Cluster        | Key Types                   | Operation              | Exact Upper Bound in Bytes                          | Approximation |
+|----------------|-----------------------------|------------------------|-----------------------------------------------------|---------------|
+| multiple nodes | `ClusterKey`                | store (*n*-out-of-*n*) | 2 + **ceil** ((4/3)(k + 1))                         | (4/3) *k*     |
+| multiple nodes | `ClusterKey`                | store (threshold)      | 2 + **ceil** [(4/3) **ceil** [(5/4)(*k* + 4) + 5]]  | (5/3) *k*     |
+| multiple nodes | `ClusterKey`                | sum (*n*-out-of-*n*)   | 4                                                   | 4             |
+| multiple nodes | `ClusterKey`                | sum (threshold)        | 8                                                   | 8             |
 
 ### Examples
 
