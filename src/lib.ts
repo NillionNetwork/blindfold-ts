@@ -5,7 +5,7 @@
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 import * as bcu from "bigint-crypto-utils";
-import sodium from "libsodium-wrappers-sumo";
+import sodium from "libsodium-wrappers";
 import * as paillierBigint from "paillier-bigint";
 
 /**
